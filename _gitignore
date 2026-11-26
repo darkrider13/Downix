@@ -1,0 +1,11 @@
+# Signing key: NEVER upload to GitHub (it goes into GitHub Secrets instead, see README.md)
+signing-private/
+
+# Build output
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+.idea/
+*.iml
