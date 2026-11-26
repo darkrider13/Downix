@@ -346,6 +346,33 @@ internal fun ConfirmDeleteFileDialog(fileName: String, onKeep: () -> Unit, onDel
     }
 }
 
+/** Asked when a finished download is removed: only the list entry, or the file on the phone as well. */
+@Composable
+internal fun ConfirmRemoveDialog(
+    item: DownloadItem,
+    onCancel: () -> Unit,
+    onListOnly: () -> Unit,
+    onDeleteFile: () -> Unit
+) {
+    GlassDialog(onCancel) {
+        Text("Delete the file too?", color = Palette.Ice, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "${item.fileName.ifBlank { "This file" }} is saved in ${SaveLocation.savedFolderLabel(item.savedUri)}. " +
+                "If you delete the file too, it is removed from your phone and this can't be undone.",
+            color = Palette.Mist,
+            fontSize = 14.sp,
+            lineHeight = 20.sp
+        )
+        Spacer(Modifier.height(20.dp))
+        PillButton("Delete file too", onClick = onDeleteFile, modifier = Modifier.fillMaxWidth(), danger = true)
+        Spacer(Modifier.height(10.dp))
+        PillButton("Remove from list only", onClick = onListOnly, modifier = Modifier.fillMaxWidth(), primary = false)
+        Spacer(Modifier.height(10.dp))
+        PillButton("Cancel", onClick = onCancel, modifier = Modifier.fillMaxWidth(), primary = false)
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Actions: copy link, share file                                     */
 /* ------------------------------------------------------------------ */

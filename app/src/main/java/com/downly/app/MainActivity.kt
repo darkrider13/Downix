@@ -575,6 +575,7 @@ private fun MainScreen(
     var showAdd by remember { mutableStateOf(false) }
     var addInitial by remember { mutableStateOf("") }
     var confirmCancel by remember { mutableStateOf<DownloadItem?>(null) }
+    var confirmRemove by remember { mutableStateOf<DownloadItem?>(null) }
 
     // A link shared from another app opens the add dialog with the link filled in.
     LaunchedEffect(sharedLink) {
@@ -673,8 +674,11 @@ private fun MainScreen(
                                 onPause = { vm.pause(item.id) },
                                 onResume = { vm.resume(item.id) },
                                 onRemove = {
-                                    if (item.isCompleted || item.downloadedBytes == 0L) vm.remove(item.id)
-                                    else confirmCancel = item
+                                    when {
+                                        item.isCompleted -> confirmRemove = item // ask: file too?
+                                        item.downloadedBytes == 0L -> vm.remove(item.id)
+                                        else -> confirmCancel = item
+                                    }
                                 },
                                 onOpen = { openDownloaded(context, item.savedUri) },
                                 onDetails = { detailsId = item.id },
@@ -763,6 +767,21 @@ private fun MainScreen(
                 vm.deleteWithFile(item.id) { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
                 confirmDeleteFile = null
                 detailsId = null
+            }
+        )
+    }
+
+    confirmRemove?.let { item ->
+        ConfirmRemoveDialog(
+            item = item,
+            onCancel = { confirmRemove = null },
+            onListOnly = {
+                vm.remove(item.id)
+                confirmRemove = null
+            },
+            onDeleteFile = {
+                vm.deleteWithFile(item.id) { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                confirmRemove = null
             }
         )
     }
