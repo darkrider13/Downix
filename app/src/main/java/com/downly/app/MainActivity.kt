@@ -87,6 +87,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.WifiOff
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -485,7 +486,8 @@ internal fun PillButton(
     modifier: Modifier = Modifier,
     primary: Boolean = true,
     danger: Boolean = false,
-    icon: ImageVector? = null
+    icon: ImageVector? = null,
+    enabled: Boolean = true
 ) {
     val shape = CircleShape
     val base = if (primary) {
@@ -496,8 +498,9 @@ internal fun PillButton(
     }
     Row(
         base
+            .alpha(if (enabled) 1f else 0.4f)
             .border(1.dp, Color.White.copy(alpha = if (primary) 0.35f else 0f), shape)
-            .pressable(onClick = onClick)
+            .pressable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 22.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
@@ -1076,6 +1079,9 @@ private fun AddLinkDialog(
     var name by remember { mutableStateOf("") }
     var showError by remember { mutableStateOf(false) }
     var duplicate by remember { mutableStateOf<DownloadItem?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    var probe by remember { mutableStateOf<LinkProbe?>(null) }
+    val canDownload = probe?.status == ProbeStatus.OK || probe?.status == ProbeStatus.WARN
 
     LaunchedEffect(Unit) {
         delay(250)
@@ -1087,12 +1093,29 @@ private fun AddLinkDialog(
         }
     }
 
+    fun connect() {
+        val value = text.trim()
+        if (!DownloadEngine.isValidUrl(value)) {
+            showError = true
+            return
+        }
+        probe = null
+        checking = true
+        scope.launch {
+            val result = LinkChecker.check(value)
+            checking = false
+            // Ignore the answer if the link was edited while checking.
+            if (value == text.trim()) probe = result
+        }
+    }
+
     fun submit(skipDuplicateCheck: Boolean = false) {
         val value = text.trim()
         if (!DownloadEngine.isValidUrl(value)) {
             showError = true
             return
         }
+        if (!canDownload) return
         val customName = name.trim().ifBlank { null }
         if (skipDuplicateCheck) {
             onSubmit(value, customName)
@@ -1116,6 +1139,7 @@ private fun AddLinkDialog(
                 text = it
                 showError = false
                 duplicate = null
+                probe = null
             },
             modifier = Modifier.fillMaxWidth().focusRequester(focus),
             placeholder = { Text("https://example.com/file.zip") },
@@ -1136,6 +1160,7 @@ private fun AddLinkDialog(
                                 text = extractLink(it) ?: it.trim()
                                 showError = false
                                 duplicate = null
+                                probe = null
                             }
                         }
                         .padding(10.dp)
@@ -1158,7 +1183,7 @@ private fun AddLinkDialog(
             singleLine = true,
             shape = RoundedCornerShape(18.dp),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { submit() }),
+            keyboardActions = KeyboardActions(onGo = { if (canDownload) submit() else connect() }),
             colors = glassFieldColors()
         )
 
@@ -1177,14 +1202,57 @@ private fun AddLinkDialog(
             }
         }
 
-        Spacer(Modifier.height(22.dp))
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            PillButton(
+                text = when {
+                    checking -> "Connecting"
+                    probe != null -> "Connect again"
+                    else -> "Connect"
+                },
+                onClick = { connect() },
+                primary = false,
+                enabled = !checking && text.isNotBlank()
+            )
+            Spacer(Modifier.width(12.dp))
+            val result = probe
+            when {
+                checking -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = Palette.Sky
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Checking the link...", color = Palette.Mist, fontSize = 13.sp)
+                }
+                result != null -> {
+                    val color = when (result.status) {
+                        ProbeStatus.OK -> Palette.Lime
+                        ProbeStatus.WARN -> Palette.Amber
+                        ProbeStatus.FAIL -> Palette.Coral
+                    }
+                    Box(Modifier.size(12.dp).clip(CircleShape).background(color))
+                    Spacer(Modifier.width(8.dp))
+                    Text(result.message, color = color, fontSize = 13.sp)
+                }
+                else -> Text("Tap Connect to check the link first.", color = Palette.Mist, fontSize = 13.sp)
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             PillButton("Cancel", onClick = onDismiss, primary = false)
             Spacer(Modifier.width(10.dp))
             if (duplicate != null) {
-                PillButton("Download again", onClick = { submit(skipDuplicateCheck = true) }, icon = Icons.Rounded.Download)
+                PillButton(
+                    "Download again",
+                    onClick = { submit(skipDuplicateCheck = true) },
+                    icon = Icons.Rounded.Download,
+                    enabled = canDownload
+                )
             } else {
-                PillButton("Download", onClick = { submit() }, icon = Icons.Rounded.Download)
+                PillButton("Download", onClick = { submit() }, icon = Icons.Rounded.Download, enabled = canDownload)
             }
         }
     }

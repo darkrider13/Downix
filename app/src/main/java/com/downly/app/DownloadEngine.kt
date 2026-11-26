@@ -323,10 +323,7 @@ class DownloadEngine(
         var restarted = false
         while (true) {
             val existing = if (part.exists()) part.length() else 0L
-            val builder = Request.Builder()
-                .url(url)
-                .header("User-Agent", USER_AGENT)
-                .header("Accept-Encoding", "identity") // keep Content-Length / ranges reliable
+            val builder = LinkHeaders.apply(Request.Builder().url(url), url)
             if (existing > 0) builder.header("Range", "bytes=$existing-")
 
             val call = client.newCall(builder.build())
@@ -533,7 +530,6 @@ class DownloadEngine(
     /* -------------------------- helpers -------------------------- */
 
     companion object {
-        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android) Downly/1.0"
         private const val BUFFER_SIZE = 64 * 1024
         private const val TICK_MS = 400L
         private const val MIN_FREE_SPACE = 5L * 1024 * 1024
