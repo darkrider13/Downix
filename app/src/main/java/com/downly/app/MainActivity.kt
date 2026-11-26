@@ -965,7 +965,9 @@ internal fun sizeLabel(item: DownloadItem): String = when {
 internal fun StatusLine(item: DownloadItem) {
     val (label, color) = when (item.state) {
         DownloadState.DOWNLOADING -> {
-            val text = if (item.speedBytesPerSec > 0) {
+            val text = if (item.savingPercent >= 0) {
+                "Saving to Downloads, ${item.savingPercent}%"
+            } else if (item.speedBytesPerSec > 0) {
                 buildString {
                     append(formatSpeed(item.speedBytesPerSec))
                     if (item.etaSeconds >= 0) append(", ${formatEta(item.etaSeconds)} left")

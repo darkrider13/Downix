@@ -40,6 +40,7 @@ import okhttp3.Response
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.OutputStream
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
@@ -73,7 +74,8 @@ data class DownloadUpdate(
     val totalBytes: Long,              // -1 when the server does not tell the size
     val speedBytesPerSec: Long = 0L,
     val savedUri: String? = null,      // set when COMPLETED
-    val error: String? = null          // set when FAILED
+    val error: String? = null,         // set when FAILED
+    val savingPercent: Int = -1        // 0..100 while the finished file is copied to Downloads, else -1
 ) {
     val hasKnownSize: Boolean get() = totalBytes > 0
     val progress: Float
@@ -234,11 +236,12 @@ class DownloadEngine(
             try {
                 prev?.join() // wait until the previous run (if it was just paused) fully stops
                 var attempt = 0
-                while (true) {
+                // Not null = every byte is already here (paused / failed while saving): no network needed.
+                var finished: File? = completedFile(id)
+                while (finished == null) {
                     awaitNetwork(id)
                     try {
-                        gate.withPermit { download(id, cleanUrl, session, nameFromServer) }
-                        break
+                        finished = gate.withPermit { download(id, cleanUrl, session, nameFromServer) }
                     } catch (e: Throwable) {
                         if (e is CancellationException || session.stop != null || !isRetryable(e)) throw e
                         if (!allowed.value) continue // network problem: wait for the network, no retry is used up
@@ -252,6 +255,8 @@ class DownloadEngine(
                         delay(wait * 1000L)
                     }
                 }
+                // Outside the gate: saving does not use the network, so the next download can start now.
+                finishDownload(id, session, checkNotNull(finished))
             } catch (t: Throwable) {
                 val stop = session.stop
                 when {
@@ -341,15 +346,13 @@ class DownloadEngine(
 
     /* -------------------------- core work -------------------------- */
 
-    private suspend fun download(id: Long, url: String, session: Session, nameFromServer: Boolean) {
+    /** @return the work file that now holds the whole download. */
+    private suspend fun download(id: Long, url: String, session: Session, nameFromServer: Boolean): File {
         val part = partFile(id)
         publish(id, DownloadState.DOWNLOADING, partialBytes(id))
 
         // Fast path: several connections at once. Falls back to one connection when the link can't do it.
-        if (downloadSegmented(id, url, session, nameFromServer)) {
-            finishDownload(id, mpartFile(id))
-            return
-        }
+        if (downloadSegmented(id, url, session, nameFromServer)) return mpartFile(id)
 
         var restarted = false
         while (true) {
@@ -369,15 +372,37 @@ class DownloadEngine(
             restarted = true // part file was invalid, loop again from 0
         }
 
-        finishDownload(id, part)
+        return part
+    }
+
+    /** A work file that is already complete, or null when something still has to be downloaded. */
+    private fun completedFile(id: Long): File? {
+        val meta = metas[id] ?: return null
+        val part = partFile(id)
+        if (part.exists()) return part.takeIf { meta.total > 0 && it.length() == meta.total }
+
+        val data = mpartFile(id)
+        if (!data.exists()) return null
+        val total = runCatching { segFile(id).readLines()[0].split(',')[1].toLong() }.getOrDefault(-1L)
+        if (total <= 0 || data.length() != total || partialBytes(id) != total) return null
+        meta.total = total
+        return data
     }
 
     /** Copies the finished file to the public Downloads folder and cleans up the work files. */
-    private fun finishDownload(id: Long, file: File) {
+    private suspend fun finishDownload(id: Long, session: Session, file: File) {
         val meta = metas[id]!!
         val size = file.length()
+        meta.total = size
+        publishSaving(id, size, 0)
+
+        val free = file.parentFile?.usableSpace ?: Long.MAX_VALUE
+        if (free < size + MIN_FREE_SPACE) throw FatalDownloadException("Not enough storage space to save the file")
+
         val uri = try {
-            saveToPublicDownloads(file, meta.fileName, meta.mime)
+            saveToPublicDownloads(id, session, file, meta.fileName, meta.mime)
+        } catch (e: CancellationException) {
+            throw e // paused / canceled while saving
         } catch (e: Exception) {
             throw FatalDownloadException(e.message ?: "Could not save the file to Downloads")
         }
@@ -443,7 +468,8 @@ class DownloadEngine(
         }
 
         val free = data.parentFile?.usableSpace ?: Long.MAX_VALUE
-        if (free < (total - sumDone(done)) + MIN_FREE_SPACE) throw FatalDownloadException("Not enough storage space")
+        // Room for the missing bytes plus the second copy made while saving to Downloads.
+        if (free < (total - sumDone(done)) + total + MIN_FREE_SPACE) throw FatalDownloadException("Not enough storage space")
 
         // 3. Run the connections.
         try {
@@ -452,6 +478,7 @@ class DownloadEngine(
                 runWorkers(id, url, session, total, chunk, done, raf.channel)
             }
             if (sumDone(done) != total) throw IOException("Connection lost")
+            saveProgress(id, total, chunk, done) // so a pause while saving does not download anything again
         } catch (e: Throwable) {
             val refused = e is RangeRefusedException ||
                 (e is HttpStatusException && e.code in FALLBACK_CODES)
@@ -648,7 +675,7 @@ class DownloadEngine(
 
         if (total > 0) {
             val free = part.parentFile?.usableSpace ?: Long.MAX_VALUE
-            if (free < (total - startAt) + MIN_FREE_SPACE) throw FatalDownloadException("Not enough storage space")
+            if (free < (total - startAt) + total + MIN_FREE_SPACE) throw FatalDownloadException("Not enough storage space")
         }
 
         var downloaded = startAt
@@ -712,7 +739,8 @@ class DownloadEngine(
         downloaded: Long,
         speed: Long = 0L,
         savedUri: String? = null,
-        error: String? = null
+        error: String? = null,
+        savingPercent: Int = -1
     ) {
         val meta = metas[id]
         _updates.tryEmit(
@@ -724,9 +752,14 @@ class DownloadEngine(
                 totalBytes = meta?.total ?: -1L,
                 speedBytesPerSec = speed,
                 savedUri = savedUri,
-                error = error
+                error = error,
+                savingPercent = savingPercent
             )
         )
+    }
+
+    private fun publishSaving(id: Long, size: Long, percent: Int) {
+        publish(id, DownloadState.DOWNLOADING, size, savingPercent = percent)
     }
 
     /* -------------------------- files -------------------------- */
@@ -759,7 +792,13 @@ class DownloadEngine(
      * Android 10+: MediaStore (no permission needed).
      * Android 9 and below: direct write (needs WRITE_EXTERNAL_STORAGE, falls back to the app folder).
      */
-    private fun saveToPublicDownloads(part: File, name: String, mime: String?): String {
+    private suspend fun saveToPublicDownloads(
+        id: Long,
+        session: Session,
+        part: File,
+        name: String,
+        mime: String?
+    ): String {
         val type = mime?.takeIf { it.isNotBlank() && it != "application/octet-stream" } ?: mimeFromName(name)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -774,7 +813,7 @@ class DownloadEngine(
                 ?: throw IOException("Could not create the file in Downloads")
             try {
                 val os = resolver.openOutputStream(uri) ?: throw IOException("Could not open the file for writing")
-                os.use { out -> part.inputStream().use { it.copyTo(out, BUFFER_SIZE) } }
+                os.use { out -> copyWithProgress(id, session, part, out) }
                 val done = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
                 resolver.update(uri, done, null, null)
             } catch (e: Exception) {
@@ -790,9 +829,38 @@ class DownloadEngine(
             if (!dir.exists()) dir.mkdirs()
         }
         val target = uniqueFile(dir, name)
-        part.copyTo(target, overwrite = false)
+        try {
+            target.outputStream().use { out -> copyWithProgress(id, session, part, out) }
+        } catch (e: Exception) {
+            target.delete()
+            throw e
+        }
         MediaScannerConnection.scanFile(appContext, arrayOf(target.absolutePath), arrayOf(type), null)
         return Uri.fromFile(target).toString()
+    }
+
+    /** Copies [file] into [out] piece by piece, reports the percent and stops on pause / cancel. */
+    private suspend fun copyWithProgress(id: Long, session: Session, file: File, out: OutputStream) {
+        val size = file.length()
+        val buffer = ByteArray(SAVE_BUFFER_SIZE)
+        var copied = 0L
+        var lastTick = SystemClock.elapsedRealtime()
+        file.inputStream().use { input ->
+            while (true) {
+                coroutineContext.ensureActive()
+                if (session.stop != null) throw CancellationException("stopped")
+                val n = input.read(buffer)
+                if (n == -1) break
+                out.write(buffer, 0, n)
+                copied += n
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastTick >= TICK_MS && size > 0) {
+                    lastTick = now
+                    publishSaving(id, size, (copied * 100 / size).toInt().coerceIn(0, 100))
+                }
+            }
+        }
+        out.flush()
     }
 
     private fun uniqueFile(dir: File, name: String): File {
@@ -812,6 +880,7 @@ class DownloadEngine(
 
     companion object {
         private const val BUFFER_SIZE = 64 * 1024
+        private const val SAVE_BUFFER_SIZE = 1024 * 1024      // bigger pieces = faster copy to Downloads
         private const val CONNECTIONS = 6                    // parallel connections per download
         private const val MULTI_MIN_BYTES = 4L * 1024 * 1024 // smaller files use one connection
         private const val MIN_CHUNK = 2L * 1024 * 1024

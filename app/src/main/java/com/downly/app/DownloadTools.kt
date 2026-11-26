@@ -227,7 +227,7 @@ internal fun EmptyListMessage(filter: DownloadFilter, query: String, modifier: M
 /* ------------------------------------------------------------------ */
 
 internal fun stateLabel(item: DownloadItem): String = when (item.state) {
-    DownloadState.DOWNLOADING -> "Downloading"
+    DownloadState.DOWNLOADING -> if (item.savingPercent >= 0) "Saving to Downloads" else "Downloading"
     DownloadState.QUEUED -> "Waiting in queue"
     DownloadState.WAITING -> item.error?.takeIf { it.isNotBlank() } ?: "Waiting for network"
     DownloadState.PAUSED -> "Paused"

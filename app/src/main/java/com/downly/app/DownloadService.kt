@@ -81,15 +81,19 @@ object DownloadNotifier {
 
         val allWaiting = count > 0 && active.all { it.state == DownloadState.WAITING }
 
+        val allSaving = count > 0 && active.all { it.savingPercent >= 0 }
+
         val title = when {
             count == 0 -> "Starting downloads"
             allWaiting -> "Waiting to download"
+            allSaving -> if (count == 1) "Saving 1 file" else "Saving $count files"
             count == 1 -> "Downloading 1 file"
             else -> "Downloading $count files"
         }
         val text = when {
             count == 0 -> "Getting ready"
             allWaiting -> active.first().error?.takeIf { it.isNotBlank() } ?: "Waiting for network"
+            allSaving -> "Saving to Downloads"
             percent >= 0 && speed > 0 -> "$percent%, ${formatSpeed(speed)}"
             percent >= 0 -> "$percent%"
             speed > 0 -> formatSpeed(speed)

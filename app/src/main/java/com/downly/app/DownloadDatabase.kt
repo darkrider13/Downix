@@ -124,7 +124,8 @@ data class DownloadItem(
     val speedBytesPerSec: Long,
     val savedUri: String?,
     val error: String?,
-    val createdAt: Long
+    val createdAt: Long,
+    val savingPercent: Int = -1 // 0..100 while the file is copied to Downloads, else -1
 ) {
     val hasKnownSize: Boolean get() = totalBytes > 0
     val progress: Float
@@ -154,7 +155,8 @@ private fun DownloadEntity.toItem(live: DownloadUpdate?): DownloadItem {
             speedBytesPerSec = live.speedBytesPerSec,
             savedUri = savedUri,
             error = null,
-            createdAt = createdAt
+            createdAt = createdAt,
+            savingPercent = live.savingPercent
         )
     } else {
         DownloadItem(
@@ -330,7 +332,8 @@ class DownloadRepository private constructor(context: Context) {
     private suspend fun onUpdate(u: DownloadUpdate) {
         when (u.state) {
             DownloadState.DOWNLOADING -> {
-                if (lastState[u.id] != DownloadState.DOWNLOADING) {
+                // savingPercent 0: keep the final size in the database, resume needs it if the app is closed now
+                if (lastState[u.id] != DownloadState.DOWNLOADING || u.savingPercent == 0) {
                     lastState[u.id] = DownloadState.DOWNLOADING
                     write(u)
                 }
