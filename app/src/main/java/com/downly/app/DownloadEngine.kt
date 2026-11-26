@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.SystemClock
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
 import kotlinx.coroutines.CancellationException
@@ -75,7 +76,7 @@ data class DownloadUpdate(
     val speedBytesPerSec: Long = 0L,
     val savedUri: String? = null,      // set when COMPLETED
     val error: String? = null,         // set when FAILED
-    val savingPercent: Int = -1        // 0..100 while the finished file is copied to Downloads, else -1
+    val savingPercent: Int = -1        // 0..100 while the finished file is being saved, else -1
 ) {
     val hasKnownSize: Boolean get() = totalBytes > 0
     val progress: Float
@@ -135,7 +136,7 @@ private class RangeRefusedException : IOException("Server does not support parti
 
 /**
  * Download engine: HTTP download with pause / resume (Range header), speed tracking,
- * parallel limit, and saving the finished file to the public Downloads folder.
+ * parallel limit, and saving the finished file to Downloads or to the folder picked in Settings.
  *
  * Usage:
  *   val engine = DownloadEngine(context)
@@ -178,6 +179,7 @@ class DownloadEngine(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gate = Gate(maxParallel)
     private val wifiOnly = MutableStateFlow(false)
+    @Volatile private var saveFolder = "" // picked folder (tree URI), blank = Downloads
 
     /** true = a download may use the network right now. */
     private val allowed: StateFlow<Boolean> = combine(network, wifiOnly) { n, w -> isAllowed(n, w) }
@@ -317,6 +319,11 @@ class DownloadEngine(
         wifiOnly.value = enabled
     }
 
+    /** Where finished files go, see [SaveLocation]. Used by every download that finishes from now on. */
+    fun setSaveFolder(folderUri: String) {
+        saveFolder = folderUri
+    }
+
     /** Max downloads running at the same time (at least 1). Can be changed any time. */
     fun setMaxParallel(count: Int) {
         gate.setLimit(count)
@@ -389,22 +396,25 @@ class DownloadEngine(
         return data
     }
 
-    /** Copies the finished file to the public Downloads folder and cleans up the work files. */
+    /** Copies the finished file to its final folder and cleans up the work files. */
     private suspend fun finishDownload(id: Long, session: Session, file: File) {
         val meta = metas[id]!!
         val size = file.length()
         meta.total = size
         publishSaving(id, size, 0)
 
+        val folder = saveFolder
         val free = file.parentFile?.usableSpace ?: Long.MAX_VALUE
-        if (free < size + MIN_FREE_SPACE) throw FatalDownloadException("Not enough storage space to save the file")
+        if (SaveLocation.isOnPhoneStorage(folder) && free < size + MIN_FREE_SPACE) {
+            throw FatalDownloadException("Not enough storage space to save the file")
+        }
 
         val uri = try {
-            saveToPublicDownloads(id, session, file, meta.fileName, meta.mime)
+            saveFile(id, session, file, meta.fileName, meta.mime, folder)
         } catch (e: CancellationException) {
             throw e // paused / canceled while saving
         } catch (e: Exception) {
-            throw FatalDownloadException(e.message ?: "Could not save the file to Downloads")
+            throw FatalDownloadException(e.message ?: "Could not save the file")
         }
         deleteWork(id)
         publish(id, DownloadState.COMPLETED, size, 0L, savedUri = uri)
@@ -468,8 +478,8 @@ class DownloadEngine(
         }
 
         val free = data.parentFile?.usableSpace ?: Long.MAX_VALUE
-        // Room for the missing bytes plus the second copy made while saving to Downloads.
-        if (free < (total - sumDone(done)) + total + MIN_FREE_SPACE) throw FatalDownloadException("Not enough storage space")
+        // Room for the missing bytes plus the second copy made while saving.
+        if (free < (total - sumDone(done)) + roomForCopy(total) + MIN_FREE_SPACE) throw FatalDownloadException("Not enough storage space")
 
         // 3. Run the connections.
         try {
@@ -675,7 +685,7 @@ class DownloadEngine(
 
         if (total > 0) {
             val free = part.parentFile?.usableSpace ?: Long.MAX_VALUE
-            if (free < (total - startAt) + total + MIN_FREE_SPACE) throw FatalDownloadException("Not enough storage space")
+            if (free < (total - startAt) + roomForCopy(total) + MIN_FREE_SPACE) throw FatalDownloadException("Not enough storage space")
         }
 
         var downloaded = startAt
@@ -758,6 +768,9 @@ class DownloadEngine(
         )
     }
 
+    /** Space the finished copy will need on the phone (none when it goes to an SD card). */
+    private fun roomForCopy(total: Long): Long = if (SaveLocation.isOnPhoneStorage(saveFolder)) total else 0L
+
     private fun publishSaving(id: Long, size: Long, percent: Int) {
         publish(id, DownloadState.DOWNLOADING, size, savingPercent = percent)
     }
@@ -785,6 +798,44 @@ class DownloadEngine(
         mpartFile(id).delete()
         segFile(id).delete()
         File(segFile(id).parentFile, segFile(id).name + ".tmp").delete()
+    }
+
+    /**
+     * Saves to the picked [folder]. If that is not possible any more (folder deleted, SD card removed,
+     * access lost) the file goes to Downloads instead, so a finished download is not lost.
+     */
+    private suspend fun saveFile(
+        id: Long,
+        session: Session,
+        file: File,
+        name: String,
+        mime: String?,
+        folder: String
+    ): String {
+        if (folder.isNotBlank()) {
+            try {
+                return saveToFolder(id, session, file, name, folder)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                publishSaving(id, file.length(), 0) // start over, in Downloads
+            }
+        }
+        return saveToPublicDownloads(id, session, file, name, mime)
+    }
+
+    private suspend fun saveToFolder(id: Long, session: Session, file: File, name: String, folder: String): String {
+        val resolver = appContext.contentResolver
+        // The type must match the name, otherwise Android adds a second extension.
+        val target = SaveLocation.createFile(resolver, folder, name, mimeFromName(name))
+        try {
+            val os = resolver.openOutputStream(target) ?: throw IOException("Could not open the file for writing")
+            os.use { out -> copyWithProgress(id, session, file, out) }
+        } catch (e: Exception) {
+            runCatching { DocumentsContract.deleteDocument(resolver, target) }
+            throw e
+        }
+        return target.toString()
     }
 
     /**
@@ -880,7 +931,7 @@ class DownloadEngine(
 
     companion object {
         private const val BUFFER_SIZE = 64 * 1024
-        private const val SAVE_BUFFER_SIZE = 1024 * 1024      // bigger pieces = faster copy to Downloads
+        private const val SAVE_BUFFER_SIZE = 1024 * 1024      // bigger pieces = faster saving
         private const val CONNECTIONS = 6                    // parallel connections per download
         private const val MULTI_MIN_BYTES = 4L * 1024 * 1024 // smaller files use one connection
         private const val MIN_CHUNK = 2L * 1024 * 1024

@@ -253,6 +253,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     fun setWifiOnly(enabled: Boolean) = settingsRepo.setWifiOnly(enabled)
     fun setNotifications(enabled: Boolean) = settingsRepo.setNotifications(enabled)
     fun setAutoUpdateCheck(enabled: Boolean) = settingsRepo.setAutoUpdateCheck(enabled)
+    fun setDownloadFolder(folderUri: String) = settingsRepo.setDownloadFolder(folderUri)
 
     /* ---------------------------- updates ---------------------------- */
 
@@ -724,6 +725,7 @@ private fun MainScreen(
             onWifiOnly = vm::setWifiOnly,
             onNotifications = vm::setNotifications,
             onAutoUpdate = vm::setAutoUpdateCheck,
+            onDownloadFolder = vm::setDownloadFolder,
             onCheckUpdate = vm::checkForUpdates,
             onOpenUpdate = { showUpdate = true },
             onInstallUpdate = { installUpdate(context, vm) },
@@ -838,7 +840,7 @@ private fun EmptyState(modifier: Modifier = Modifier) {
         Text("No downloads yet", color = Palette.Ice, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
         Text(
-            "Tap Add link and paste a file link. Finished files are saved in your Downloads folder.",
+            "Tap Add link and paste a file link. Finished files are saved in your download folder.",
             color = Palette.Mist,
             fontSize = 14.sp,
             lineHeight = 21.sp,
@@ -956,7 +958,7 @@ private fun DownloadCard(
 }
 
 internal fun sizeLabel(item: DownloadItem): String = when {
-    item.isCompleted -> "${formatBytes(maxOf(item.totalBytes, item.downloadedBytes))} saved to Downloads"
+    item.isCompleted -> "${formatBytes(maxOf(item.totalBytes, item.downloadedBytes))} saved to ${SaveLocation.savedFolderLabel(item.savedUri)}"
     item.hasKnownSize -> "${formatBytes(item.downloadedBytes)} of ${formatBytes(item.totalBytes)}, ${item.percent}%"
     else -> formatBytes(item.downloadedBytes)
 }
@@ -966,7 +968,7 @@ internal fun StatusLine(item: DownloadItem) {
     val (label, color) = when (item.state) {
         DownloadState.DOWNLOADING -> {
             val text = if (item.savingPercent >= 0) {
-                "Saving to Downloads, ${item.savingPercent}%"
+                "Saving file, ${item.savingPercent}%"
             } else if (item.speedBytesPerSec > 0) {
                 buildString {
                     append(formatSpeed(item.speedBytesPerSec))
@@ -1289,6 +1291,7 @@ private fun SettingsDialog(
     onWifiOnly: (Boolean) -> Unit,
     onNotifications: (Boolean) -> Unit,
     onAutoUpdate: (Boolean) -> Unit,
+    onDownloadFolder: (String) -> Unit,
     onCheckUpdate: () -> Unit,
     onOpenUpdate: () -> Unit,
     onInstallUpdate: () -> Unit,
@@ -1306,6 +1309,14 @@ private fun SettingsDialog(
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> if (uri != null) onImport(uri, showMessage) }
+    val folderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            if (SaveLocation.keepAccess(context, uri)) onDownloadFolder(uri.toString())
+            else showMessage("Can't use this folder, choose another one")
+        }
+    }
 
     GlassDialog(onClose) {
         Text("Settings", color = Palette.Ice, fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -1335,6 +1346,25 @@ private fun SettingsDialog(
             subtitle = "Tell me when a download is finished or failed"
         ) {
             GlassSwitch(settings.notifications, onNotifications)
+        }
+        SettingDivider()
+        SettingRow(
+            title = SettingNames.DOWNLOAD_FOLDER,
+            subtitle = "Save to: ${SaveLocation.folderLabel(settings.downloadFolder)}"
+        ) {
+            PillButton(
+                "Change",
+                onClick = {
+                    runCatching { folderLauncher.launch(null) }
+                        .onFailure { showMessage("No folder picker found on this phone") }
+                },
+                primary = false
+            )
+        }
+        if (settings.downloadFolder.isNotBlank()) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.End) {
+                PillButton("Use Downloads folder", onClick = { onDownloadFolder("") }, primary = false)
+            }
         }
 
         SettingSection("Updates")

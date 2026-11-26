@@ -11,7 +11,8 @@ data class AppSettings(
     val maxParallel: Int = DEFAULT_PARALLEL,
     val wifiOnly: Boolean = false,
     val notifications: Boolean = true,
-    val autoUpdateCheck: Boolean = true
+    val autoUpdateCheck: Boolean = true,
+    val downloadFolder: String = "" // picked folder (tree URI), blank = Downloads
 ) {
     companion object {
         const val MIN_PARALLEL = 1
@@ -29,6 +30,7 @@ object SettingNames {
     const val WIFI_ONLY = "Wi-Fi only"
     const val NOTIFICATIONS = "Notifications"
     const val AUTO_UPDATE_CHECK = "Check for updates automatically"
+    const val DOWNLOAD_FOLDER = "Download folder"
 }
 
 /**
@@ -68,10 +70,18 @@ class SettingsRepository private constructor(context: Context) {
         _settings.update { it.copy(autoUpdateCheck = enabled) }
     }
 
+    /** [folderUri] blank = back to the Downloads folder. */
+    fun setDownloadFolder(folderUri: String) {
+        prefs.edit().putString(KEY_FOLDER, folderUri).apply()
+        _settings.update { it.copy(downloadFolder = folderUri) }
+    }
+
     /** Replaces every setting at once (used by "Import settings"). Values are range-checked. */
     fun replaceAll(new: AppSettings) {
         val safe = new.copy(
-            maxParallel = new.maxParallel.coerceIn(AppSettings.MIN_PARALLEL, AppSettings.MAX_PARALLEL)
+            maxParallel = new.maxParallel.coerceIn(AppSettings.MIN_PARALLEL, AppSettings.MAX_PARALLEL),
+            // Folder access belongs to this phone only, so a backup file never changes it.
+            downloadFolder = current.downloadFolder
         )
         prefs.edit()
             .putInt(KEY_PARALLEL, safe.maxParallel)
@@ -87,7 +97,8 @@ class SettingsRepository private constructor(context: Context) {
             .coerceIn(AppSettings.MIN_PARALLEL, AppSettings.MAX_PARALLEL),
         wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false),
         notifications = prefs.getBoolean(KEY_NOTIFICATIONS, true),
-        autoUpdateCheck = prefs.getBoolean(KEY_AUTO_UPDATE, true)
+        autoUpdateCheck = prefs.getBoolean(KEY_AUTO_UPDATE, true),
+        downloadFolder = prefs.getString(KEY_FOLDER, "").orEmpty()
     )
 
     companion object {
@@ -96,6 +107,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_WIFI_ONLY = "wifi_only"
         private const val KEY_NOTIFICATIONS = "notifications"
         private const val KEY_AUTO_UPDATE = "auto_update_check"
+        private const val KEY_FOLDER = "download_folder"
 
         @Volatile private var instance: SettingsRepository? = null
 

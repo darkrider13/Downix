@@ -2,6 +2,7 @@ package com.downly.app
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -125,7 +126,7 @@ data class DownloadItem(
     val savedUri: String?,
     val error: String?,
     val createdAt: Long,
-    val savingPercent: Int = -1 // 0..100 while the file is copied to Downloads, else -1
+    val savingPercent: Int = -1 // 0..100 while the finished file is being saved, else -1
 ) {
     val hasKnownSize: Boolean get() = totalBytes > 0
     val progress: Float
@@ -228,10 +229,12 @@ class DownloadRepository private constructor(context: Context) {
         // Apply the saved settings right away, then follow every change.
         engine.setMaxParallel(settingsRepo.current.maxParallel)
         engine.setWifiOnly(settingsRepo.current.wifiOnly)
+        engine.setSaveFolder(settingsRepo.current.downloadFolder)
         scope.launch {
             settingsRepo.settings.collect {
                 engine.setMaxParallel(it.maxParallel)
                 engine.setWifiOnly(it.wifiOnly)
+                engine.setSaveFolder(it.downloadFolder)
             }
         }
         // Subscribe first so no engine update is missed.
@@ -273,7 +276,7 @@ class DownloadRepository private constructor(context: Context) {
     /** Stops the download and deletes the half-downloaded file. The row disappears from the list. */
     fun cancel(id: Long) = engine.cancel(id)
 
-    /** Removes an item from the list (stops it first if needed). A finished file stays in Downloads. */
+    /** Removes an item from the list (stops it first if needed). A finished file stays on the phone. */
     suspend fun remove(id: Long) {
         engine.cancel(id)
         dao.deleteById(id)
@@ -308,7 +311,9 @@ class DownloadRepository private constructor(context: Context) {
 
     private fun deleteSavedFile(saved: String): FileDeleteResult = try {
         val uri = Uri.parse(saved)
-        if (uri.scheme == "content") {
+        if (DocumentsContract.isDocumentUri(appContext, uri)) {
+            deleteDocumentFile(uri) // saved in a picked folder
+        } else if (uri.scheme == "content") {
             if (appContext.contentResolver.delete(uri, null, null) > 0) FileDeleteResult.DELETED
             else FileDeleteResult.ALREADY_GONE
         } else {
@@ -321,6 +326,22 @@ class DownloadRepository private constructor(context: Context) {
         }
     } catch (e: Exception) {
         FileDeleteResult.FAILED
+    }
+
+    private fun deleteDocumentFile(uri: Uri): FileDeleteResult {
+        val resolver = appContext.contentResolver
+        fun exists(target: Uri): Boolean = runCatching {
+            resolver.query(target, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID), null, null, null)
+                ?.use { it.moveToFirst() } == true
+        }.getOrDefault(false)
+
+        if (exists(uri)) {
+            return if (DocumentsContract.deleteDocument(resolver, uri)) FileDeleteResult.DELETED
+            else FileDeleteResult.FAILED
+        }
+        // Folder reachable but no file: it is gone. Folder not reachable (SD card out, no access): keep the row.
+        val folder = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
+        return if (exists(folder)) FileDeleteResult.ALREADY_GONE else FileDeleteResult.FAILED
     }
 
     suspend fun pauseAll() {

@@ -227,7 +227,7 @@ internal fun EmptyListMessage(filter: DownloadFilter, query: String, modifier: M
 /* ------------------------------------------------------------------ */
 
 internal fun stateLabel(item: DownloadItem): String = when (item.state) {
-    DownloadState.DOWNLOADING -> if (item.savingPercent >= 0) "Saving to Downloads" else "Downloading"
+    DownloadState.DOWNLOADING -> if (item.savingPercent >= 0) "Saving file" else "Downloading"
     DownloadState.QUEUED -> "Waiting in queue"
     DownloadState.WAITING -> item.error?.takeIf { it.isNotBlank() } ?: "Waiting for network"
     DownloadState.PAUSED -> "Paused"
@@ -296,7 +296,8 @@ internal fun DetailsDialog(
         SettingDivider()
         DetailRow(
             "Saved to",
-            if (item.isCompleted) "Downloads / ${item.fileName}" else "Downloads folder, when the download is finished"
+            if (item.isCompleted) "${SaveLocation.savedFolderLabel(item.savedUri)} / ${item.fileName}"
+            else "Your download folder, when the download is finished"
         )
         if (item.state == DownloadState.FAILED && !item.error.isNullOrBlank()) {
             SettingDivider()
@@ -330,7 +331,7 @@ internal fun ConfirmDeleteFileDialog(fileName: String, onKeep: () -> Unit, onDel
         Text("Delete file from your phone?", color = Palette.Ice, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(
-            "${fileName.ifBlank { "This file" }} will be deleted from your Downloads folder and removed from the list. " +
+            "${fileName.ifBlank { "This file" }} will be deleted from your phone and removed from the list. " +
                 "This can't be undone.",
             color = Palette.Mist,
             fontSize = 14.sp,
