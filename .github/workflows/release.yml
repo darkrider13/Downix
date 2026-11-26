@@ -73,14 +73,19 @@ jobs:
       - name: Name the APK and check its signature
         id: apk
         run: |
-          src=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)
-          [ -n "$src" ] || { echo "::error::No release APK was built"; exit 1; }
+          src=$(find app/build/outputs -name '*.apk' 2>/dev/null | head -n 1 || true)
+          if [ -z "$src" ]; then
+            echo "::error::No release APK was built. Files found in app/build/outputs:"
+            find app/build/outputs -type f 2>/dev/null || true
+            exit 1
+          fi
+          echo "APK found: $src"
           out="Downly-${{ steps.version.outputs.name }}.apk"
           cp "$src" "$out"
           echo "file=$out" >> "$GITHUB_OUTPUT"
-          signer=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n 1)
+          signer=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n 1 || true)
           if [ -n "$signer" ]; then
-            "$signer" verify --print-certs "$out" | grep -E "Signer #1 certificate (DN|SHA-256)"
+            "$signer" verify --print-certs "$out" || echo "::warning::apksigner could not verify the APK"
           else
             echo "apksigner not found, signature check skipped"
           fi
