@@ -1,24 +1,80 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
 }
 
+// ---------------------------------------------------------------------------
+// Versioning
+//   versionName = <downly.versionBase>.<buildNumber>   e.g. 1.0.12
+//   versionCode = <buildNumber>                        always grows, so Android accepts it as an update
+// The CI workflow passes -PbuildNumber=<run number>. Local builds use buildNumber 0 (1.0.0, code 1).
+// ---------------------------------------------------------------------------
+val versionBase = providers.gradleProperty("downly.versionBase").orElse("1.0").get()
+val buildNumber = providers.gradleProperty("buildNumber").map { it.toInt() }.orElse(0).get()
+
+// GitHub "owner/repo" whose Releases hold the new APKs (used by the in-app update checker).
+val updateRepo = providers.gradleProperty("updateRepo")
+    .orElse(providers.gradleProperty("downly.updateRepo"))
+    .orElse("")
+    .get()
+
+// ---------------------------------------------------------------------------
+// Release signing. The SAME key must sign every build, otherwise Android refuses to
+// update over the installed app. Source order:
+//   1. environment (CI): DOWNLY_KEYSTORE_PATH, DOWNLY_KEYSTORE_PASSWORD, DOWNLY_KEY_ALIAS, DOWNLY_KEY_PASSWORD
+//   2. signing-private/keystore.properties (local, never uploaded to GitHub)
+// ---------------------------------------------------------------------------
+val keystoreProps = Properties().apply {
+    val file = rootProject.file("signing-private/keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun signingValue(envName: String, propName: String): String? =
+    System.getenv(envName)?.takeIf { it.isNotBlank() } ?: keystoreProps.getProperty(propName)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile: File? = signingValue("DOWNLY_KEYSTORE_PATH", "storeFile")?.let { path ->
+    val candidate = File(path)
+    if (candidate.isAbsolute) candidate else rootProject.file("signing-private/$path")
+}?.takeIf { it.exists() }
+val releaseStorePassword = signingValue("DOWNLY_KEYSTORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("DOWNLY_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("DOWNLY_KEY_PASSWORD", "keyPassword")
+val hasReleaseSigning = releaseStoreFile != null &&
+    releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null
+
 android {
-    namespace = "com.glass.downloader"
+    namespace = "com.downly.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.glass.downloader"
+        applicationId = "com.downly.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = maxOf(buildNumber, 1)
+        versionName = "$versionBase.$buildNumber"
+        buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -31,12 +87,24 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+}
+
+// A release APK signed with the wrong (or no) key would silently break updates: fail loudly instead.
+gradle.taskGraph.whenReady {
+    val buildsRelease = allTasks.any { it.name == "assembleRelease" || it.name == "bundleRelease" }
+    if (buildsRelease && !hasReleaseSigning) {
+        throw GradleException(
+            "Release signing key not found. Put signing-private/ next to the project " +
+                "(local build) or set the KEYSTORE_* secrets (GitHub Actions). See README.md."
+        )
     }
 }
 
@@ -62,4 +130,7 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
+
+    // Background update check
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 }
