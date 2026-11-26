@@ -83,17 +83,20 @@ object DownloadNotifier {
 
         val allSaving = count > 0 && active.all { it.savingPercent >= 0 }
 
+        // One file: its name is the title. Several: the names are listed when the notification is expanded.
+        val single = active.singleOrNull()
+
         val title = when {
+            single != null -> single.fileName.ifBlank { "Getting file info" }
             count == 0 -> "Starting downloads"
             allWaiting -> "Waiting to download"
-            allSaving -> if (count == 1) "Saving 1 file" else "Saving $count files"
-            count == 1 -> "Downloading 1 file"
+            allSaving -> "Saving $count files"
             else -> "Downloading $count files"
         }
         val text = when {
             count == 0 -> "Getting ready"
             allWaiting -> active.first().error?.takeIf { it.isNotBlank() } ?: "Waiting for network"
-            allSaving -> "Saving file"
+            allSaving -> if (single != null) "Saving file, ${single.savingPercent}%" else "Saving files"
             percent >= 0 && speed > 0 -> "$percent%, ${formatSpeed(speed)}"
             percent >= 0 -> "$percent%"
             speed > 0 -> formatSpeed(speed)
@@ -113,13 +116,14 @@ object DownloadNotifier {
             .setShowWhen(false)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(openAppIntent(context))
-            .setProgress(100, percent.coerceAtLeast(0), percent < 0)
+            .setProgress(100, (single?.savingPercent?.takeIf { it >= 0 } ?: percent).coerceAtLeast(0), percent < 0)
 
         if (count > 1) {
             val style = NotificationCompat.InboxStyle()
             active.take(MAX_LINES).forEach { item ->
                 val name = item.fileName.ifBlank { "Getting file info" }
-                style.addLine(if (item.hasKnownSize) "$name - ${item.percent}%" else name)
+                // percent first, so a long name can never push it off the line
+                style.addLine(if (item.hasKnownSize) "${item.percent}% - $name" else name)
             }
             if (count > MAX_LINES) style.setSummaryText("+${count - MAX_LINES} more")
             builder.setStyle(style)
