@@ -837,22 +837,25 @@ internal object PopupLayers {
 }
 
 /**
- * The dark dim behind every popup. It is drawn inside the app screen (not inside the popup window), so it covers
- * the WHOLE screen: status bar and navigation bar area included, on every phone. Two open popups dim twice.
+ * Blur behind popups, no dark dim. It is a GPU RenderEffect on the layer (Android 12+; older phones simply show
+ * the app un-blurred). It is applied in the app screen ([MainActivity]) on a layer that fills the real screen, so
+ * the blur reaches the status bar and the navigation bar area too. [active] fades the blur in and out; the value
+ * is read only while drawing, so nothing recomposes.
  */
-@Composable
-internal fun PopupScrim() {
-    val c = Downix.colors
-    val layers = PopupLayers.count
-    Box(Modifier.fillMaxSize().drawBehind { repeat(layers) { drawRect(c.scrim) } })
+internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 10.dp): Modifier = composed {
+    val strength = animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = if (PopupLayers.instant > 0) snap() else tween(if (active) 240 else 70),
+        label = "popupBlur"
+    )
+    val maxPx = with(LocalDensity.current) { maxRadius.toPx() }
+    this.graphicsLayer {
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            val r = strength.value * maxPx
+            renderEffect = if (r > 0.5f) BlurEffect(r, r, TileMode.Clamp) else null
+        }
+    }
 }
-
-/**
- * Popups no longer blur what is behind them: they only dim it with the dark scrim (the same look older Android
- * versions always had). The function is kept (it does nothing) so every existing call site keeps working.
- */
-@Suppress("UNUSED_PARAMETER")
-internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 10.dp): Modifier = this
 
 /**
  * Call inside a Dialog's content. Registers the popup in [PopupLayers] and returns whether another popup is
@@ -963,7 +966,7 @@ internal fun GlassBottomSheet(
 
 /**
  * Centered pop-up (used by "Add link" and "From clipboard"): glass card in the middle of the screen,
- * dark scrim behind it, fades in (no scale, no movement). Tap outside or Back closes it.
+ * blurred app behind it, fades in (no scale, no movement). Tap outside or Back closes it.
  * The card stays fixed: the keyboard never moves it.
  */
 @Composable
@@ -993,9 +996,9 @@ internal fun GlassCenterDialog(
             progress.animateTo(1f, tween(150, easing = FastOutSlowInEasing))
         }
 
-        // The dark dim behind the popup is NOT drawn here: a popup window can end above the navigation bar on some
-        // phones, which left a light strip at the bottom. The dim is drawn by [PopupScrim] inside the app screen,
-        // which always reaches the real screen edges.
+        // No dim and no blur of the app is drawn here: a popup window can end above the navigation bar on some
+        // phones. The blur behind the popup is applied inside the app screen, which reaches the real screen edges.
+        // A popup that has ANOTHER popup above it blurs itself ([covered]).
         // The card never moves: no keyboard shift, no scale, only a fade. It stays fixed at the centre.
         Box(
             Modifier
@@ -1017,12 +1020,6 @@ internal fun GlassCenterDialog(
                     .widthIn(max = 420.dp)
                     .fillMaxWidth()
                     .glass(RoundedCornerShape(24.dp), strong = true, flat = true)
-                    // another popup is open above this one: this card dims too
-                    .clip(RoundedCornerShape(24.dp))
-                    .drawWithContent {
-                        drawContent()
-                        if (covered) drawRect(c.scrim)
-                    }
                     // swallow taps so they do not reach the scrim
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },

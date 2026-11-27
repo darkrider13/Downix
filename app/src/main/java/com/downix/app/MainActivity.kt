@@ -208,12 +208,12 @@ class MainActivity : ComponentActivity() {
             }
 
             DownixTheme {
-                Box(Modifier.fillMaxSize()) {
+                // The whole screen (down to the navigation bar) blurs while any popup is open.
+                Box(Modifier.fillMaxSize().blurWhen(PopupLayers.count > 0)) {
                     MainScreen(
                         sharedLink = pendingLink,
                         onSharedLinkConsumed = { pendingLink = null }
                     )
-                    PopupScrim()
                 }
             }
         }
@@ -451,7 +451,7 @@ private fun MainScreen(
         if (needed.isNotEmpty()) permissionLauncher.launch(needed.toTypedArray())
     }
 
-    DownixBackground(Modifier.blurWhen(PopupLayers.count > 0)) {
+    DownixBackground {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Header(
                 downloads = downloads,
