@@ -981,15 +981,23 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
     }
     val view = LocalView.current
     val window = (view.parent as? DialogWindowProvider)?.window
+    val darkBars = Downix.colors.isDark
     SideEffect {
         window ?: return@SideEffect
         // no system pop / fade animation when the popup window closes
         if (window.attributes.windowAnimations != 0) window.setWindowAnimations(0)
+        // System bar icons follow Day / Dark inside the popup window too (the popup window is the focused window,
+        // so it decides how the status bar and the navigation bar look while it is open).
+        androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !darkBars
+            isAppearanceLightNavigationBars = !darkBars
+        }
         // already prepared: do not touch the window again on every recomposition (that causes flicker)
         val attrs = window.attributes
         if (attrs.width == android.view.ViewGroup.LayoutParams.MATCH_PARENT &&
             attrs.height == android.view.ViewGroup.LayoutParams.MATCH_PARENT &&
-            (attrs.flags and android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS) != 0
+            (attrs.flags and android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS) != 0 &&
+            (attrs.flags and android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS) != 0
         ) return@SideEffect
         window.apply {
             setDimAmount(0f)
@@ -998,7 +1006,23 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT
             )
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
-            addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            // Without FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS the system paints the navigation bar area solid black as soon as
+            // this popup window gets focus, so the blur + scrim stopped above it. Now the popup window draws the bar
+            // background itself (transparent), and the blurred app + scrim continue all the way down to the screen edge.
+            @Suppress("DEPRECATION")
+            clearFlags(
+                android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
+                    android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
+            )
+            addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+            )
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(this, false)
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                navigationBarDividerColor = android.graphics.Color.TRANSPARENT
+            }
             // Keyboard: the pop-up window must NOT resize or pan, so the card stays exactly where it opened.
             @Suppress("DEPRECATION")
             setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
