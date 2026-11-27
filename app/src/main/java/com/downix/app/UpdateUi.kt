@@ -100,14 +100,6 @@ internal fun UpdateDialog(
         Text("You have ${BuildConfig.VERSION_NAME}", color = c.textSecondary, fontSize = 11.sp)
 
         Spacer(Modifier.height(10.dp))
-        Text("What's new", color = c.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(2.dp))
-        Text(
-            "Bug fixes, performance improvements and a smoother experience.",
-            color = c.textSecondary,
-            fontSize = 12.sp,
-            lineHeight = 17.sp
-        )
         Spacer(Modifier.height(16.dp))
 
         when (state) {
@@ -119,7 +111,7 @@ internal fun UpdateDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Downloading ${percentText(state)}. You can close this, it continues in the background.",
+                    "Downloading ${percentText(state)}",
                     color = c.textSecondary,
                     fontSize = 11.sp
                 )
