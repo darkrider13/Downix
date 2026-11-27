@@ -1010,6 +1010,8 @@ internal fun GlassCenterDialog(
         // insets changed for a moment and the centred card slid down a little after tapping a copy button.
         val imeInsets = WindowInsets.ime
         val navStable = WindowInsets.navigationBarsIgnoringVisibility
+        val statusStable = WindowInsets.statusBarsIgnoringVisibility
+        val safePad = remember { intArrayOf(0) }
         // Keyboard lift. While the system itself animates the keyboard (Android 11+) its per-frame value is followed
         // 1:1 with NO extra animation on top (an extra tween restarted every frame and made the card lag behind, then
         // jump at the end). Only when the keyboard size jumps at once (older phones / some keyboards) the card glides.
@@ -1035,17 +1037,24 @@ internal fun GlassCenterDialog(
                     indication = null,
                     onClick = onDismiss
                 )
-                .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
-                .windowInsetsPadding(navStable)
         ) {
             Box(
                 Modifier
                     .fillMaxSize()
                     // The lift is read only in the layout phase: no recomposition on every keyboard frame.
                     .layout { measurable, constraints ->
-                        val h = (constraints.maxHeight - lift.value.toInt()).coerceAtLeast(0)
+                        // LOCKED centre: the card is centred on the real screen. The safe margin is the SAME at the
+                        // top and the bottom (largest bar size ever seen, it can only grow), so no system bar change
+                        // (copy overlay, checkbox tap, focus change) can ever move the card. Only the keyboard lifts it.
+                        safePad[0] = maxOf(
+                            safePad[0],
+                            statusStable.getTop(density),
+                            navStable.getBottom(density)
+                        )
+                        val pad = safePad[0]
+                        val h = (constraints.maxHeight - lift.value.toInt() - 2 * pad).coerceAtLeast(0)
                         val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
-                        layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, 0) }
+                        layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, pad) }
                     },
                 contentAlignment = Alignment.Center
             ) {
