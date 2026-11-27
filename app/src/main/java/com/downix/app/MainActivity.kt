@@ -1076,34 +1076,80 @@ internal fun sizeLabel(item: DownloadItem): String = when {
     else -> formatBytes(item.downloadedBytes)
 }
 
-/** 12 sp status text: green + bold while running / completed, gray when paused or waiting. */
+/** Which line the status text shows. Only a change of kind is animated, never the live numbers inside a kind. */
+private enum class StatusKind { CONNECTING, RUNNING, SAVING, QUEUED, WAITING, PAUSED, FAILED, COMPLETED, CANCELED }
+
+private fun statusText(kind: StatusKind, item: DownloadItem): String = when (kind) {
+    StatusKind.CONNECTING -> "Connecting"
+    StatusKind.SAVING -> "Saving file · ${maxOf(item.savingPercent, 0)}%"
+    StatusKind.RUNNING ->
+        if (item.hasKnownSize) "${item.percent}% · ${formatSpeed(item.speedBytesPerSec)}"
+        else formatSpeed(item.speedBytesPerSec)
+    StatusKind.QUEUED -> "Waiting in queue"
+    StatusKind.WAITING -> item.error?.takeIf { it.isNotBlank() } ?: "Waiting for network"
+    StatusKind.PAUSED -> if (item.hasKnownSize) "Paused · ${item.percent}%" else "Paused"
+    StatusKind.FAILED -> "Failed"
+    StatusKind.COMPLETED -> "Completed"
+    StatusKind.CANCELED -> "Canceled"
+}
+
+/**
+ * 12 sp status text: green while running / completed, gray when paused or waiting.
+ * After a resume, "Waiting in queue" stays for at least 1 second (even if the download already started), then
+ * fades into "Connecting" and the speed text, so it is never a quick flash. Kinds change with a 380 ms cross-fade (same duration and easing as the progress bar colour);
+ * every kind has its own colour, and one font weight is used everywhere so the text never jumps in width.
+ */
 @Composable
 internal fun StatusLine(item: DownloadItem) {
     val c = Downix.colors
-    val (label, color, _) = when (item.state) {
-        DownloadState.DOWNLOADING -> {
-            val text = when {
-                item.savingPercent >= 0 -> "Saving file · ${item.savingPercent}%"
-                item.speedBytesPerSec > 0 ->
-                    if (item.hasKnownSize) "${item.percent}% · ${formatSpeed(item.speedBytesPerSec)}"
-                    else formatSpeed(item.speedBytesPerSec)
-                else -> "Connecting"
-            }
-            Triple(text, c.green, FontWeight.Bold)
+    var prev by remember { mutableStateOf(item.state) }
+    var queueHold by remember { mutableStateOf(false) }
+    if (item.state != prev) {
+        // entering the queue starts a 1 s hold; if the download starts meanwhile the hold goes on,
+        // any other state (paused again, failed, finished ...) ends it
+        queueHold = when {
+            item.state == DownloadState.QUEUED -> true
+            item.state == DownloadState.DOWNLOADING && queueHold -> true
+            else -> false
         }
-        DownloadState.QUEUED -> Triple("Waiting in queue", c.textSecondary, FontWeight.Medium)
-        DownloadState.WAITING ->
-            Triple(item.error?.takeIf { it.isNotBlank() } ?: "Waiting for network", c.textSecondary, FontWeight.Medium)
-        DownloadState.PAUSED ->
-            Triple(if (item.hasKnownSize) "Paused · ${item.percent}%" else "Paused", c.textSecondary, FontWeight.Medium)
-        DownloadState.FAILED -> Triple("Failed", c.red, FontWeight.Bold)
-        DownloadState.COMPLETED -> Triple("Completed", c.green, FontWeight.Bold)
-        DownloadState.CANCELED -> Triple("Canceled", c.textSecondary, FontWeight.Medium)
+        prev = item.state
     }
-    // Same duration and easing as the progress bar colour, so text and bar change together (no clash on resume).
-    // One font weight for every state: a bold <-> medium switch changed the text width and made it jump.
-    val animated by animateColorAsState(color, tween(380, easing = FastOutSlowInEasing), label = "status")
-    Text(label, color = animated, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    LaunchedEffect(queueHold) {
+        if (queueHold) {
+            delay(1000)
+            queueHold = false
+        }
+    }
+    val kind = when (item.state) {
+        DownloadState.DOWNLOADING -> when {
+            queueHold -> StatusKind.QUEUED
+            item.savingPercent >= 0 -> StatusKind.SAVING
+            item.speedBytesPerSec <= 0 -> StatusKind.CONNECTING
+            else -> StatusKind.RUNNING
+        }
+        DownloadState.QUEUED -> StatusKind.QUEUED
+        DownloadState.WAITING -> StatusKind.WAITING
+        DownloadState.PAUSED -> StatusKind.PAUSED
+        DownloadState.FAILED -> StatusKind.FAILED
+        DownloadState.COMPLETED -> StatusKind.COMPLETED
+        DownloadState.CANCELED -> StatusKind.CANCELED
+    }
+    Crossfade(targetState = kind, animationSpec = tween(380, easing = FastOutSlowInEasing), label = "statusKind") { k ->
+        val color = when (k) {
+            StatusKind.CONNECTING, StatusKind.RUNNING, StatusKind.SAVING, StatusKind.COMPLETED -> c.green
+            StatusKind.FAILED -> c.red
+            else -> c.textSecondary
+        }
+        Text(
+            statusText(k, item),
+            color = color,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
 /** 34 dp glass tile with a thin file-type icon. */
