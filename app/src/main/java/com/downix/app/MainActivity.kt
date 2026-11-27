@@ -86,6 +86,7 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.calculateTargetValue
 import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.foundation.gestures.FlingBehavior
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.rememberUpdatedState
@@ -133,6 +134,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -290,6 +292,13 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
     fun remove(id: Long) { viewModelScope.launch { repo.remove(id) } }
+    /** Download the same link again from the start (a finished file stays on the phone). */
+    fun restart(item: DownloadItem) {
+        viewModelScope.launch {
+            repo.remove(item.id)
+            if (repo.add(item.url, item.fileName.ifBlank { null }) != null) DownloadService.start(app)
+        }
+    }
     fun removeMany(ids: List<Long>) { viewModelScope.launch { ids.forEach { repo.remove(it) } } }
     fun deleteManyWithFiles(ids: List<Long>, onResult: (String) -> Unit) {
         viewModelScope.launch {
@@ -359,6 +368,7 @@ private fun MainScreen(
     // The list is newest-first. When a NEW download is added (its id is higher than the newest one seen
     // before) the list glides up to the top so the new card is visible. Deleting a card does not scroll.
     val listState = rememberLazyListState()
+    val listDensity = LocalDensity.current
     var newestSeenId by remember { mutableStateOf<Long?>(null) }
     val newestId = downloads.firstOrNull()?.id
     LaunchedEffect(newestId, listLoaded) {
@@ -366,7 +376,20 @@ private fun MainScreen(
         val previous = newestSeenId
         newestSeenId = newestId
         if (previous != null && newestId != null && newestId > previous) {
-            listState.animateScrollToItem(0)
+            // Light, smooth glide: from far away it first steps close to the top (no long fly-through of
+            // many cards), then one soft eased slide brings the new card into view.
+            if (listState.firstVisibleItemIndex > 2) listState.scrollToItem(2)
+            val firstSize = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.size
+            if (firstSize != null) {
+                val gapPx = with(listDensity) { 10.dp.roundToPx() }
+                val distance = listState.firstVisibleItemIndex * (firstSize + gapPx) +
+                    listState.firstVisibleItemScrollOffset
+                if (distance > 0) {
+                    listState.animateScrollBy(-distance.toFloat(), tween(340, easing = FastOutSlowInEasing))
+                }
+            } else {
+                listState.animateScrollToItem(0)
+            }
         }
     }
     var showAdd by remember { mutableStateOf(false) }
@@ -389,6 +412,7 @@ private fun MainScreen(
     val clipboardManager = LocalClipboardManager.current
     var addInitial by remember { mutableStateOf("") }
     var confirmCancel by remember { mutableStateOf<DownloadItem?>(null) }
+    var confirmRetry by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmRemove by remember { mutableStateOf<DownloadItem?>(null) }
 
     // Multi-select: long press a card to start, tap cards to add / remove, then delete them together.
@@ -423,6 +447,11 @@ private fun MainScreen(
     val cardPause = remember<(Long) -> Unit>(vm) { { id -> vm.pause(id) } }
     val cardResume = remember<(Long) -> Unit>(vm) { { id -> vm.resume(id) } }
     val cardRemove = remember<(DownloadItem) -> Unit> { { item -> latestRequestRemove(item) } }
+    // Retry = download the same link again from the start. A finished file (or a download that already has data)
+    // asks first: "Do you want to download this file again?"
+    val cardRetry = remember<(DownloadItem) -> Unit>(vm) {
+        { item -> if (item.isCompleted || item.downloadedBytes > 0L) confirmRetry = item else vm.restart(item) }
+    }
     val cardOpen = remember<(String?) -> Unit>(context) { { uri -> openDownloaded(context, uri, latestShowToast) } }
     val cardDetails = remember<(Long) -> Unit> { { id -> detailsId = id } }
     val cardToggleSelect = remember<(Long) -> Unit> { { id -> selected = if (id in selected) selected - id else selected + id } }
@@ -463,7 +492,7 @@ private fun MainScreen(
     // popup window to register itself). It goes away in the same frame the popup closes.
     val popupOpen = showAdd || showUpdate || detailsItem != null || confirmDeleteFile != null ||
         confirmRemove != null || (confirmBulk && downloads.any { it.id in selected }) ||
-        confirmClear || confirmCancel != null
+        confirmClear || confirmCancel != null || confirmRetry != null
     Box(Modifier.fillMaxSize().blurWhen(popupOpen || PopupLayers.count > 0)) {
     DownixBackground {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -555,6 +584,7 @@ private fun MainScreen(
                                     onPause = cardPause,
                                     onResume = cardResume,
                                     onRemove = cardRemove,
+                                    onRetry = cardRetry,
                                     onOpen = cardOpen,
                                     onDetails = cardDetails,
                                     onToggleSelect = cardToggleSelect,
@@ -567,7 +597,12 @@ private fun MainScreen(
             }
         }
 
+        // The + button hides while the list is scrolled and comes back only at the very top of the list.
+        val atTop by remember {
+            derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
+        }
         PlusMenu(
+            fabVisible = atTop || menuOpen,
             expanded = menuOpen,
             onToggle = { menuOpen = !menuOpen },
             onClose = { menuOpen = false },
@@ -722,6 +757,17 @@ private fun MainScreen(
             onClear = {
                 vm.clearFinished()
                 confirmClear = false
+            }
+        )
+    }
+
+    confirmRetry?.let { item ->
+        ConfirmRetryDialog(
+            item = item,
+            onNo = { confirmRetry = null },
+            onYes = {
+                confirmRetry = null
+                vm.restart(item)
             }
         )
     }
@@ -899,6 +945,7 @@ private fun EmptyState(modifier: Modifier = Modifier) {
  */
 @Composable
 private fun BoxScope.PlusMenu(
+    fabVisible: Boolean,
     expanded: Boolean,
     onToggle: () -> Unit,
     onClose: () -> Unit,
@@ -945,13 +992,19 @@ private fun BoxScope.PlusMenu(
         PlusMenuOption("Add link", DownixIcons.Link, expanded, { open.value }, onClick = onAddLink)
     }
 
+    val fabShow by animateFloatAsState(if (fabVisible) 1f else 0f, tween(160, easing = FastOutSlowInEasing), label = "fabShow")
     Box(
         Modifier
             .align(Alignment.BottomEnd)
             .navigationBarsPadding()
             .padding(end = 16.dp, bottom = 18.dp)
             .size(56.dp)
-            .pressable(pressedScale = 0.9f, onClick = onToggle)
+            .graphicsLayer {
+                alpha = fabShow
+                scaleX = 0.8f + 0.2f * fabShow
+                scaleY = 0.8f + 0.2f * fabShow
+            }
+            .then(if (fabVisible) Modifier.pressable(pressedScale = 0.9f, onClick = onToggle) else Modifier)
             .whiteButton(CircleShape),
         contentAlignment = Alignment.Center
     ) {
@@ -1023,6 +1076,7 @@ private fun DownloadCard(
     onPause: (Long) -> Unit,
     onResume: (Long) -> Unit,
     onRemove: (DownloadItem) -> Unit,
+    onRetry: (DownloadItem) -> Unit,
     onOpen: (String?) -> Unit,
     onDetails: (Long) -> Unit,
     onToggleSelect: (Long) -> Unit,
@@ -1117,12 +1171,18 @@ private fun DownloadCard(
             )
             when {
                 item.isCompleted -> {
+                    AnimatedIconButton(DownixIcons.Retry, "Download again", c.text, { onRetry(item) }, enabled = !selectionMode, animateSwap = false)
                     AnimatedIconButton(DownixIcons.OpenFile, "Open file", c.text, { onOpen(item.savedUri) }, enabled = !selectionMode, animateSwap = false)
                 }
                 item.canPause -> {
                     AnimatedIconButton(DownixIcons.Pause, "Pause", c.text, { onPause(item.id) }, enabled = !selectionMode, optimisticIcon = DownixIcons.Play, animateSwap = false)
                 }
                 else -> {
+                    // paused / canceled: a second button downloads the link again from the start
+                    // (a failed card already has its own Retry below, which continues the download)
+                    if (item.state != DownloadState.FAILED) {
+                        AnimatedIconButton(DownixIcons.Retry, "Download again", c.text, { onRetry(item) }, enabled = !selectionMode, animateSwap = false)
+                    }
                     AnimatedIconButton(
                         icon = if (item.state == DownloadState.FAILED) DownixIcons.Retry else DownixIcons.Play,
                         description = if (item.state == DownloadState.FAILED) "Retry" else "Resume",
@@ -1583,6 +1643,27 @@ private fun ConfirmClearDialog(onCancel: () -> Unit, onClear: () -> Unit) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Cancel", onClick = onCancel, modifier = Modifier.weight(1f))
             PillButton("Clear", onClick = onClear, danger = true, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun ConfirmRetryDialog(item: DownloadItem, onNo: () -> Unit, onYes: () -> Unit) {
+    GlassBottomSheet(onDismiss = onNo, title = "Download again?", instant = true) {
+        Text(
+            if (item.isCompleted) {
+                "${item.fileName.ifBlank { "This file" }} is already downloaded. Do you want to download this file again?"
+            } else {
+                "${item.fileName.ifBlank { "This file" }} will start again from the beginning. The part already downloaded will be deleted."
+            },
+            color = Downix.colors.textSecondary,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("No", onClick = onNo, modifier = Modifier.weight(1f), primary = false)
+            PillButton("Yes, download", onClick = onYes, modifier = Modifier.weight(1f))
         }
     }
 }
