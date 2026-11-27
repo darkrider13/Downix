@@ -268,11 +268,15 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     fun pauseAll() { viewModelScope.launch { repo.pauseAll() } }
     fun clearFinished() { viewModelScope.launch { repo.clearFinished() } }
 
-    fun setMaxParallel(count: Int) = settingsRepo.setMaxParallel(count)
-    fun setWifiOnly(enabled: Boolean) = settingsRepo.setWifiOnly(enabled)
-    fun setNotifications(enabled: Boolean) = settingsRepo.setNotifications(enabled)
-    fun setDownloadFolder(folderUri: String) = settingsRepo.setDownloadFolder(folderUri)
-    fun setThemeMode(mode: ThemeMode) = settingsRepo.setThemeMode(mode)
+    /** Saves every changed setting at once (Settings > Apply). */
+    fun applySettings(new: AppSettings) {
+        val old = settingsRepo.current
+        if (new.maxParallel != old.maxParallel) settingsRepo.setMaxParallel(new.maxParallel)
+        if (new.wifiOnly != old.wifiOnly) settingsRepo.setWifiOnly(new.wifiOnly)
+        if (new.notifications != old.notifications) settingsRepo.setNotifications(new.notifications)
+        if (new.downloadFolder != old.downloadFolder) settingsRepo.setDownloadFolder(new.downloadFolder)
+        if (new.themeMode != old.themeMode) settingsRepo.setThemeMode(new.themeMode)
+    }
 
     /* ---------------------------- updates ---------------------------- */
 
@@ -495,14 +499,10 @@ private fun MainScreen(
                 settings = settings,
                 updateState = updateState,
                 updatesConfigured = vm.updatesConfigured,
-                onMaxParallel = vm::setMaxParallel,
-                onWifiOnly = vm::setWifiOnly,
-                onNotifications = vm::setNotifications,
-                onDownloadFolder = vm::setDownloadFolder,
+                onApply = vm::applySettings,
                 onCheckUpdate = vm::checkForUpdates,
                 onOpenUpdate = { showUpdate = true },
                 onInstallUpdate = { installUpdate(context, vm) },
-                onThemeMode = vm::setThemeMode,
                 onClose = { showSettings = false }
             )
         }
@@ -1242,18 +1242,17 @@ private fun SettingsScreen(
     settings: AppSettings,
     updateState: UpdateState,
     updatesConfigured: Boolean,
-    onMaxParallel: (Int) -> Unit,
-    onWifiOnly: (Boolean) -> Unit,
-    onNotifications: (Boolean) -> Unit,
-    onDownloadFolder: (String) -> Unit,
+    onApply: (AppSettings) -> Unit,
     onCheckUpdate: () -> Unit,
     onOpenUpdate: () -> Unit,
     onInstallUpdate: () -> Unit,
-    onThemeMode: (ThemeMode) -> Unit,
     onClose: () -> Unit
 ) {
     val c = Downly.colors
     val context = LocalContext.current
+    // Changes stay here until the user taps Apply.
+    var draft by remember { mutableStateOf(settings) }
+    val dirty = draft != settings
     val showMessage: (String) -> Unit = { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
     BackHandler(onBack = onClose)
 
@@ -1261,7 +1260,7 @@ private fun SettingsScreen(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri != null) {
-            if (SaveLocation.keepAccess(context, uri)) onDownloadFolder(uri.toString())
+            if (SaveLocation.keepAccess(context, uri)) draft = draft.copy(downloadFolder = uri.toString())
             else showMessage("Can't use this folder, choose another one")
         }
     }
@@ -1290,6 +1289,22 @@ private fun SettingsScreen(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text("Settings", color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    AnimatedVisibility(
+                        visible = dirty,
+                        enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.8f, animationSpec = tween(200)),
+                        exit = fadeOut(tween(120))
+                    ) {
+                        PillButton(
+                            "Apply",
+                            onClick = {
+                                onApply(draft)
+                                showMessage("Settings saved")
+                            },
+                            small = true,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
                 }
 
                 Column(
@@ -1302,12 +1317,12 @@ private fun SettingsScreen(
                     SettingSection("General")
                     SettingGroup {
                         SettingRow(title = SettingNames.THEME, subtitle = "Day or AMOLED dark") {
-                            ThemeSegmented(settings.themeMode, onThemeMode)
+                            ThemeSegmented(draft.themeMode) { draft = draft.copy(themeMode = it) }
                         }
                         SettingDivider()
                         SettingRow(
                             title = SettingNames.DOWNLOAD_FOLDER,
-                            subtitle = SaveLocation.folderLabel(settings.downloadFolder)
+                            subtitle = SaveLocation.folderLabel(draft.downloadFolder)
                         ) {
                             PillButton(
                                 "Change",
@@ -1318,19 +1333,13 @@ private fun SettingsScreen(
                                 small = true
                             )
                         }
-                        if (settings.downloadFolder.isNotBlank()) {
-                            SettingDivider()
-                            SettingRow(title = "Default folder", subtitle = "Go back to the Downloads folder") {
-                                PillButton("Reset", onClick = { onDownloadFolder("") }, small = true)
-                            }
-                        }
                         SettingDivider()
                         SettingRow(title = SettingNames.MAX_PARALLEL, subtitle = "Files at the same time") {
                             Stepper(
-                                value = settings.maxParallel,
+                                value = draft.maxParallel,
                                 min = AppSettings.MIN_PARALLEL,
                                 max = AppSettings.MAX_PARALLEL,
-                                onChange = onMaxParallel
+                                onChange = { draft = draft.copy(maxParallel = it) }
                             )
                         }
                     }
@@ -1338,11 +1347,11 @@ private fun SettingsScreen(
                     SettingSection("Network and alerts")
                     SettingGroup {
                         SettingRow(title = SettingNames.WIFI_ONLY, subtitle = "Never use mobile data") {
-                            GlassSwitch(settings.wifiOnly, onWifiOnly)
+                            GlassSwitch(draft.wifiOnly) { draft = draft.copy(wifiOnly = it) }
                         }
                         SettingDivider()
                         SettingRow(title = SettingNames.NOTIFICATIONS, subtitle = "When finished or failed") {
-                            GlassSwitch(settings.notifications, onNotifications)
+                            GlassSwitch(draft.notifications) { draft = draft.copy(notifications = it) }
                         }
                     }
 
@@ -1356,6 +1365,10 @@ private fun SettingsScreen(
                             onInstall = onInstallUpdate
                         )
                     }
+
+                    Spacer(Modifier.height(32.dp))
+                    DeveloperCredit()
+                    Spacer(Modifier.height(12.dp))
                 }
 
                 PillButton(
@@ -1372,23 +1385,16 @@ private fun SettingsScreen(
     }
 }
 
-/** Small WHITE pill label above a settings group (black 10sp bold uppercase). */
+/** Bold headline above a settings group (no background). */
 @Composable
 private fun SettingSection(title: String) {
-    Box(
-        Modifier
-            .padding(start = 16.dp, top = 14.dp, bottom = 6.dp)
-            .whiteButton(CircleShape)
-            .padding(horizontal = 12.dp, vertical = 5.dp)
-    ) {
-        Text(
-            title.uppercase(),
-            color = Color.Black,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
-        )
-    }
+    Text(
+        title,
+        color = Downly.colors.text,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 8.dp)
+    )
 }
 
 /** One glass group per section (radius 16, side margin 12). */
@@ -1425,30 +1431,31 @@ internal fun SettingDivider() {
     Box(Modifier.fillMaxWidth().height(1.dp).background(Downly.colors.divider))
 }
 
-/** White round "-" and "+" buttons (32 dp) with the number between them. */
+/** Plain "-" and "+" (no background) with the number between them. */
 @Composable
 private fun Stepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
+    val c = Downly.colors
     Row(verticalAlignment = Alignment.CenterVertically) {
-        GlassIconButton(
+        AnimatedIconButton(
             icon = DownlyIcons.Minus,
             description = "Fewer downloads",
+            tint = c.text,
             onClick = { onChange(value - 1) },
-            size = 32.dp,
             enabled = value > min
         )
         Text(
             "$value",
-            color = Downly.colors.text,
-            fontSize = 13.sp,
+            color = c.text,
+            fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             modifier = Modifier.widthIn(min = 24.dp)
         )
-        GlassIconButton(
+        AnimatedIconButton(
             icon = DownlyIcons.Plus,
             description = "More downloads",
+            tint = c.text,
             onClick = { onChange(value + 1) },
-            size = 32.dp,
             enabled = value < max
         )
     }

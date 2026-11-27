@@ -95,17 +95,15 @@ internal fun UpdateDialog(
         Text("Downly ${info.versionName}$size", color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Text("You have ${BuildConfig.VERSION_NAME}", color = c.textSecondary, fontSize = 11.sp)
 
-        if (info.notes.isNotBlank()) {
-            Spacer(Modifier.height(10.dp))
-            Text(
-                info.notes,
-                color = c.text,
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
-                maxLines = 8,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        Spacer(Modifier.height(10.dp))
+        Text("What's new", color = c.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "Bug fixes, performance improvements and a smoother experience.",
+            color = c.textSecondary,
+            fontSize = 12.sp,
+            lineHeight = 17.sp
+        )
         Spacer(Modifier.height(16.dp))
 
         when (state) {

@@ -820,13 +820,30 @@ internal object DownlyIcons {
     val Search by lazy { icon("Search", "M5 11a6 6 0 1 0 12 0a6 6 0 1 0-12 0", "M20 20l-4.5-4.5") }
     val Pause by lazy { icon("Pause", "M9 5v14M15 5v14") }
     val ClearAll by lazy { icon("ClearAll", "M4 7h16M4 12h11M4 17h7") }
+    /** Classic cog: toothed outline + centre ring. */
     val Settings by lazy {
         icon(
             "Settings",
-            "M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
-            "M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"
+            "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
+            "M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0"
         )
     }
+    val WhatsApp by lazy {
+        icon(
+            "WhatsApp",
+            "M7.9 20A9 9 0 1 0 4 16.1L2 22z",
+            "M9.2 8.6c-.3.9.1 2.2 1.3 3.5s2.6 2 3.6 1.8l.9-1.1-1.9-1-.8.7c-.8-.4-1.5-1.1-1.9-1.9l.7-.8-1-1.9z"
+        )
+    }
+    val Instagram by lazy {
+        icon(
+            "Instagram",
+            "M7 2h10a5 5 0 0 1 5 5v10a5 5 0 0 1-5 5H7a5 5 0 0 1-5-5V7a5 5 0 0 1 5-5z",
+            "M16 11.4A4 4 0 1 1 12.6 8 4 4 0 0 1 16 11.4z",
+            "M17.5 6.5h.01"
+        )
+    }
+    val Telegram by lazy { icon("Telegram", "M22 2L11 13", "M22 2l-7 20-4-9-9-4 20-7z") }
     val Play by lazy { icon("Play", "M8 5l11 7-11 7z") }
     val Close by lazy { icon("Close", "M6 6l12 12M18 6L6 18") }
     val OpenFile by lazy { icon("OpenFile", "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6") }
