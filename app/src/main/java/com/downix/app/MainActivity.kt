@@ -1035,7 +1035,7 @@ private fun DownloadCard(
                     AnimatedIconButton(DownixIcons.OpenFile, "Open file", c.text, onOpen, enabled = !selectionMode)
                 }
                 item.canPause -> {
-                    AnimatedIconButton(DownixIcons.Pause, "Pause", c.text, onPause, enabled = !selectionMode)
+                    AnimatedIconButton(DownixIcons.Pause, "Pause", c.text, onPause, enabled = !selectionMode, optimisticIcon = DownixIcons.Play)
                 }
                 else -> {
                     AnimatedIconButton(
@@ -1043,7 +1043,8 @@ private fun DownloadCard(
                         description = if (item.state == DownloadState.FAILED) "Retry" else "Resume",
                         tint = c.text,
                         onClick = onResume,
-                        enabled = !selectionMode
+                        enabled = !selectionMode,
+                        optimisticIcon = DownixIcons.Pause
                     )
                 }
             }
@@ -1095,34 +1096,14 @@ private fun statusText(kind: StatusKind, item: DownloadItem): String = when (kin
 
 /**
  * 12 sp status text: green while running / completed, gray when paused or waiting.
- * After a resume, "Waiting in queue" stays for at least 1 second (even if the download already started), then
- * fades into "Connecting" and the speed text, so it is never a quick flash. Kinds change with a 380 ms cross-fade (same duration and easing as the progress bar colour);
+ * After a resume the engine really waits in the queue (no download yet), then the text fades into "Connecting" and the speed text. Kinds change with a 380 ms cross-fade (same duration and easing as the progress bar colour);
  * every kind has its own colour, and one font weight is used everywhere so the text never jumps in width.
  */
 @Composable
 internal fun StatusLine(item: DownloadItem) {
     val c = Downix.colors
-    var prev by remember { mutableStateOf(item.state) }
-    var queueHold by remember { mutableStateOf(false) }
-    if (item.state != prev) {
-        // entering the queue starts a 1 s hold; if the download starts meanwhile the hold goes on,
-        // any other state (paused again, failed, finished ...) ends it
-        queueHold = when {
-            item.state == DownloadState.QUEUED -> true
-            item.state == DownloadState.DOWNLOADING && queueHold -> true
-            else -> false
-        }
-        prev = item.state
-    }
-    LaunchedEffect(queueHold) {
-        if (queueHold) {
-            delay(1000)
-            queueHold = false
-        }
-    }
     val kind = when (item.state) {
         DownloadState.DOWNLOADING -> when {
-            queueHold -> StatusKind.QUEUED
             item.savingPercent >= 0 -> StatusKind.SAVING
             item.speedBytesPerSec <= 0 -> StatusKind.CONNECTING
             else -> StatusKind.RUNNING

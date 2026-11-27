@@ -622,18 +622,62 @@ internal fun AnimatedIconButton(
     tint: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    optimisticIcon: ImageVector? = null
 ) {
     val alpha by animateFloatAsState(if (enabled) 1f else 0.35f, tween(200), label = "iconButtonAlpha")
+    val scope = rememberCoroutineScope()
+    // Tap animation: the icon shrinks, springs back and turns a little, and the play / pause icon
+    // swaps at once (does not wait for the engine). It goes back to the real icon when the state changes.
+    var tapped by remember(icon) { mutableStateOf(false) }
+    val pulse = remember { Animatable(1f) }
+    val spin = remember { Animatable(0f) }
+    val ring = remember { Animatable(0f) }
+    LaunchedEffect(tapped) {
+        if (tapped) {
+            delay(1500)
+            tapped = false
+        }
+    }
+    val shown = if (tapped && optimisticIcon != null) optimisticIcon else icon
+    val ringColor = tint
     Box(
         modifier
             .size(40.dp)
             .alpha(alpha)
-            .pressable(enabled = enabled, pressedScale = 0.82f, onClick = onClick),
+            .pressable(
+                enabled = enabled,
+                pressedScale = 0.82f,
+                onClick = {
+                    if (optimisticIcon != null) tapped = true
+                    scope.launch {
+                        pulse.snapTo(0.6f)
+                        pulse.animateTo(1f, spring(dampingRatio = 0.35f, stiffness = Spring.StiffnessMedium))
+                    }
+                    scope.launch {
+                        spin.snapTo(-90f)
+                        spin.animateTo(0f, tween(320, easing = FastOutSlowInEasing))
+                    }
+                    scope.launch {
+                        ring.snapTo(0f)
+                        ring.animateTo(1f, tween(380, easing = FastOutSlowInEasing))
+                    }
+                    onClick()
+                }
+            )
+            .drawBehind {
+                val r = ring.value
+                if (r > 0f && r < 1f) {
+                    drawCircle(
+                        color = ringColor.copy(alpha = 0.28f * (1f - r)),
+                        radius = size.minDimension / 2f * (0.5f + 0.5f * r)
+                    )
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         AnimatedContent(
-            targetState = icon,
+            targetState = shown,
             transitionSpec = {
                 (fadeIn(tween(160, delayMillis = 70)) + scaleIn(
                     initialScale = 0.4f,
@@ -641,8 +685,19 @@ internal fun AnimatedIconButton(
                 )) togetherWith (fadeOut(tween(110)) + scaleOut(targetScale = 0.4f, animationSpec = tween(110)))
             },
             label = "iconSwap"
-        ) { shown ->
-            Icon(shown, contentDescription = description, tint = tint, modifier = Modifier.size(22.dp))
+        ) { icn ->
+            Icon(
+                icn,
+                contentDescription = description,
+                tint = tint,
+                modifier = Modifier
+                    .size(22.dp)
+                    .graphicsLayer {
+                        scaleX = pulse.value
+                        scaleY = pulse.value
+                        rotationZ = spin.value
+                    }
+            )
         }
     }
 }

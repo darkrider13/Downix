@@ -237,6 +237,8 @@ class DownloadEngine(
         val job = scope.launch {
             try {
                 prev?.join() // wait until the previous run (if it was just paused) fully stops
+                // Real queue time: the download stays "Waiting in queue" and does NOT start until this is over.
+                delay(QUEUE_HOLD_MS)
                 var attempt = 0
                 // Not null = every byte is already here (paused / failed while saving): no network needed.
                 var finished: File? = completedFile(id)
@@ -948,6 +950,7 @@ class DownloadEngine(
             return sum
         }
         private const val TICK_MS = 400L
+        private const val QUEUE_HOLD_MS = 1000L
         private const val MIN_FREE_SPACE = 5L * 1024 * 1024
         private val RETRY_DELAYS_SEC = longArrayOf(2, 5, 10)
 
