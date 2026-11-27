@@ -28,6 +28,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -682,22 +683,26 @@ private fun BoxScope.PlusMenu(
     val c = Downly.colors
     BackHandler(enabled = expanded, onBack = onClose)
 
-    AnimatedVisibility(
-        visible = expanded,
-        enter = fadeIn(tween(160)),
-        exit = fadeOut(tween(80))
-    ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(c.plusOverlay)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClose
-                )
-        )
-    }
+    // ONE value drives the overlay, the "+" turning and both options. It is read only while drawing
+    // (graphicsLayer / drawBehind), so opening the menu does not recompose anything: fast and smooth.
+    val open = animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(if (expanded) 200 else 140, easing = FastOutSlowInEasing),
+        label = "plusMenu"
+    )
+
+    // Always there, but it only takes touches while the menu is open.
+    Box(
+        Modifier
+            .fillMaxSize()
+            .drawBehind { drawRect(c.plusOverlay, alpha = open.value) }
+            .clickable(
+                enabled = expanded,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClose
+            )
+    )
 
     Column(
         Modifier
@@ -707,18 +712,17 @@ private fun BoxScope.PlusMenu(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        PlusMenuOption("From clipboard", DownlyIcons.Clipboard, expanded, delayMs = 60, onClick = onFromClipboard)
-        PlusMenuOption("Add link", DownlyIcons.Link, expanded, delayMs = 0, onClick = onAddLink)
+        PlusMenuOption("From clipboard", DownlyIcons.Clipboard, expanded, { ((open.value - 0.2f) / 0.8f).coerceIn(0f, 1f) }, onClick = onFromClipboard)
+        PlusMenuOption("Add link", DownlyIcons.Link, expanded, { open.value }, onClick = onAddLink)
     }
 
-    val rotation by animateFloatAsState(if (expanded) 45f else 0f, tween(250), label = "plusRotation")
     Box(
         Modifier
             .align(Alignment.BottomEnd)
             .navigationBarsPadding()
             .padding(end = 16.dp, bottom = 18.dp)
             .size(56.dp)
-            .pressable(onClick = onToggle)
+            .pressable(pressedScale = 0.9f, onClick = onToggle)
             .whiteButton(CircleShape),
         contentAlignment = Alignment.Center
     ) {
@@ -726,45 +730,36 @@ private fun BoxScope.PlusMenu(
             DownlyIcons.Plus,
             contentDescription = if (expanded) "Close menu" else "Add download",
             tint = Color.Black,
-            modifier = Modifier.size(26.dp).graphicsLayer { rotationZ = rotation }
+            modifier = Modifier.size(26.dp).graphicsLayer { rotationZ = 45f * open.value }
         )
     }
 }
 
-/** One menu row: glass label chip (radius 12) + 46 white circle icon. Rises 18 and scales from 0.8 with a small bounce (260 ms). */
+/**
+ * One menu row: label chip + round white icon. Fades and rises 14 dp while it opens (no bounce, no shadows),
+ * so it is light to draw. [progress] is read only in graphicsLayer.
+ */
 @Composable
 private fun PlusMenuOption(
     label: String,
     icon: ImageVector,
     visible: Boolean,
-    delayMs: Int,
+    progress: () -> Float,
     onClick: () -> Unit
 ) {
     val c = Downly.colors
-    val progress by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = if (visible) {
-            tween(260, delayMillis = delayMs, easing = CubicBezierEasing(0.34f, 1.56f, 0.64f, 1f))
-        } else {
-            tween(80) // closing is quick, so a popup that opens right after it is not fighting the menu
-        },
-        label = "menuOption"
-    )
-    if (progress <= 0.001f && !visible) return
     Row(
         Modifier.graphicsLayer {
-            alpha = progress.coerceIn(0f, 1f)
-            translationY = (1f - progress) * 18.dp.toPx()
-            scaleX = 0.8f + 0.2f * progress
-            scaleY = 0.8f + 0.2f * progress
-            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0.5f)
+            val p = progress()
+            alpha = p
+            translationY = (1f - p) * 14.dp.toPx()
         },
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             Modifier
                 .pressable(enabled = visible, onClick = onClick)
-                .glass(RoundedCornerShape(12.dp), strong = true)
+                .glass(RoundedCornerShape(12.dp), strong = true, flat = true)
                 .heightIn(min = 36.dp)
                 .padding(horizontal = 14.dp),
             contentAlignment = Alignment.Center
@@ -776,7 +771,9 @@ private fun PlusMenuOption(
             Modifier
                 .size(46.dp)
                 .pressable(enabled = visible, onClick = onClick)
-                .whiteButton(CircleShape),
+                .clip(CircleShape)
+                .background(Color.White, CircleShape)
+                .border(1.dp, c.whiteBorder, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(icon, contentDescription = label, tint = Color.Black, modifier = Modifier.size(20.dp))
@@ -947,10 +944,10 @@ private fun fileKind(name: String): ImageVector =
     }
 
 /**
- * 7 dp glass progress bar. The fill is the bar colour at ~55 to 90 % opacity (soft glass, not solid),
- * with a thin light border and a glossy highlight on the top half. While [active] a soft light sheen
- * glides over the fill; the fill's width follows the progress with a smooth ease-out.
- * Unknown size ([indeterminate]) = a glass segment sliding across the track.
+ * Flat 6 dp progress bar: a rounded track with a solid, rounded fill in the bar colour (no gloss, no border,
+ * no sheen), so it looks clean and costs almost nothing to draw. The fill follows the progress with a smooth
+ * ease-out. Unknown size ([indeterminate]) = a solid segment gliding across the track.
+ * [active] is kept so old calls still compile.
  */
 @Composable
 internal fun GlassProgress(
@@ -961,76 +958,50 @@ internal fun GlassProgress(
     active: Boolean = true
 ) {
     val c = Downly.colors
-    val shape = RoundedCornerShape(4.dp)
-    val animated by animateFloatAsState(progress, tween(700, easing = LinearOutSlowInEasing), label = "progress")
-    val sweep = rememberInfiniteTransition(label = "sweep")
-    val x by sweep.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(if (indeterminate) 1300 else 1900, easing = LinearEasing)),
-        label = "sweepX"
-    )
-    val glassBrush = Brush.horizontalGradient(listOf(color.copy(alpha = 0.55f), color.copy(alpha = 0.9f)))
+    val animated by animateFloatAsState(progress, tween(500, easing = LinearOutSlowInEasing), label = "progress")
+    val x = if (indeterminate) {
+        val sweep = rememberInfiniteTransition(label = "sweep")
+        sweep.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(1300, easing = LinearEasing)),
+            label = "sweepX"
+        )
+    } else null
 
     Box(
         modifier
             .fillMaxWidth()
-            .height(7.dp)
-            .clip(shape)
-            .background(c.track)
-    ) {
-        if (indeterminate) {
-            Box(
-                Modifier.fillMaxSize().drawBehind {
-                    val w = size.width * 0.35f
-                    val start = (size.width + w) * x - w
-                    drawRoundRect(
-                        brush = Brush.horizontalGradient(
-                            listOf(color.copy(alpha = 0f), color.copy(alpha = 0.85f), color.copy(alpha = 0f)),
-                            startX = start,
-                            endX = start + w
-                        ),
-                        topLeft = Offset(start, 0f),
-                        size = Size(w, size.height),
-                        cornerRadius = CornerRadius(size.height / 2)
-                    )
-                }
-            )
-        } else if (animated > 0.001f) {
-            Box(
-                Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(animated.coerceIn(0f, 1f))
-                    .clip(shape)
-                    .background(glassBrush)
-                    .border(0.7.dp, Color.White.copy(alpha = 0.35f), shape)
-                    .drawWithContent {
-                        drawContent()
-                        // glossy highlight on the upper half
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                listOf(Color.White.copy(alpha = 0.38f), Color.Transparent),
-                                endY = size.height * 0.62f
-                            )
+            .height(6.dp)
+            .drawBehind {
+                val r = CornerRadius(size.height / 2f)
+                drawRoundRect(color = c.track, cornerRadius = r)
+                if (x != null) {
+                    val w = size.width * 0.3f
+                    val start = (size.width + w) * x.value - w
+                    val left = start.coerceAtLeast(0f)
+                    val right = (start + w).coerceAtMost(size.width)
+                    if (right > left) {
+                        drawRoundRect(
+                            color = color,
+                            topLeft = Offset(left, 0f),
+                            size = Size(right - left, size.height),
+                            cornerRadius = r
                         )
-                        // soft sheen gliding over the fill while the download runs
-                        if (active) {
-                            val w = 56.dp.toPx()
-                            val start = (size.width + w) * x - w
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    listOf(Color.Transparent, Color.White.copy(alpha = 0.5f), Color.Transparent),
-                                    startX = start,
-                                    endX = start + w
-                                ),
-                                topLeft = Offset(start, 0f),
-                                size = Size(w, size.height)
-                            )
-                        }
                     }
-            )
-        }
-    }
+                } else {
+                    val fill = size.width * animated.coerceIn(0f, 1f)
+                    if (fill > 0.5f) {
+                        // never narrower than the bar is high, so the rounded end always looks right
+                        drawRoundRect(
+                            color = color,
+                            size = Size(maxOf(fill, size.height), size.height),
+                            cornerRadius = r
+                        )
+                    }
+                }
+            }
+    )
 }
 
 /* ------------------------------------------------------------------ */
@@ -1056,7 +1027,7 @@ private fun AddLinkDialog(
     val canDownload = probe?.status == ProbeStatus.OK || probe?.status == ProbeStatus.WARN
 
     LaunchedEffect(Unit) {
-        delay(200) // after the popup has finished opening, so the keyboard does not make it jump
+        delay(300) // after the popup has finished opening, so the keyboard does not make it jump
         runCatching { focus.requestFocus() }
     }
 

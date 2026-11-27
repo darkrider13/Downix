@@ -12,6 +12,22 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.animation.core.animate
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalView
@@ -472,7 +488,7 @@ internal fun PillButton(
     when {
         green -> { fill = c.green; content = c.onGreen; border = c.green }
         danger -> { fill = c.red; content = c.onRed; border = c.red }
-        outlineRed -> { fill = Color.Transparent; content = c.red; border = c.red }
+        outlineRed -> { fill = c.red; content = c.onRed; border = c.red }
         else -> { fill = White; content = Color.Black; border = c.whiteBorder }
     }
     val look = if (fill == White) {
@@ -563,8 +579,9 @@ internal fun GlassDialog(onDismiss: () -> Unit, content: @Composable ColumnScope
 
 
 /**
- * Bottom sheet from the design: glass, margin 8, radius 24, drag handle 36x4, slides up in 300 ms.
- * Dark scrim behind it (c.scrim); tap outside or Back closes it. Moves above the keyboard.
+ * Bottom sheet from the design: glass, margin 8, radius 24, drag handle 36x4.
+ * Opens with a smooth slide-up. Closes by: swiping the sheet down, tapping anywhere outside it, or Back.
+ * Every close slides down smoothly. Moves above the keyboard.
  */
 @Composable
 internal fun GlassBottomSheet(
@@ -573,8 +590,77 @@ internal fun GlassBottomSheet(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val c = Downly.colors
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    // progress: 0 = hidden, 1 = shown. dragPx: how far the finger pulled the sheet down.
+    // Both are read only while drawing, so nothing is recomposed while the sheet moves.
+    val progress = remember { Animatable(0f) }
+    var dragPx by remember { mutableFloatStateOf(0f) }
+    var sheetH by remember { mutableFloatStateOf(0f) }
+    var closing by remember { mutableStateOf(false) }
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+
+    // Starts after the first frame is ready, so the heavy first frame does not eat the animation.
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        progress.animateTo(1f, tween(240, easing = FastOutSlowInEasing))
+    }
+
+    val closeAll: () -> Unit = {
+        if (!closing) {
+            closing = true
+            scope.launch {
+                val from = dragPx
+                val to = sheetH + with(density) { 48.dp.toPx() }
+                animate(from, to, animationSpec = tween(190, easing = FastOutLinearInEasing)) { v, _ -> dragPx = v }
+                currentOnDismiss()
+            }
+        }
+    }
+    val settle: (Float) -> Unit = { velocity ->
+        if (!closing) {
+            scope.launch {
+                if (dragPx > sheetH * 0.28f || velocity > 1300f) {
+                    closeAll()
+                } else {
+                    animate(dragPx, 0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f)) { v, _ -> dragPx = v }
+                }
+            }
+        }
+    }
+
+    // Lets the sheet follow a downward swipe once its own content is at the top.
+    val connection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < 0f && dragPx > 0f) {
+                    val used = minOf(-available.y, dragPx)
+                    dragPx -= used
+                    return Offset(0f, -used)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (available.y > 0f && source == NestedScrollSource.Drag) {
+                    dragPx += available.y
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (dragPx > 0f) {
+                    settle(available.y)
+                    return available
+                }
+                return Velocity.Zero
+            }
+        }
+    }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = closeAll,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
         // The scrim is drawn by us, so switch off the window's own dim.
@@ -582,36 +668,31 @@ internal fun GlassBottomSheet(
         SideEffect {
             (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
         }
-        // One progress value drives both scrim and slide. It starts only AFTER the first frame has been
-        // composed and laid out, so the heavy first frame no longer eats the start of the animation
-        // (that was the "stuck, then jumps" feeling). It is read only in graphicsLayer / draw, so the
-        // sheet is not recomposed while it moves.
-        val progress = remember { Animatable(0f) }
-        LaunchedEffect(Unit) {
-            withFrameNanos { }
-            progress.animateTo(1f, tween(260, easing = FastOutSlowInEasing))
-        }
         Box(
             Modifier
                 .fillMaxSize()
-                .drawBehind { drawRect(c.scrim, alpha = progress.value) }
+                .drawBehind {
+                    val pulled = if (sheetH > 0f) (dragPx / sheetH).coerceIn(0f, 1f) else 0f
+                    drawRect(c.scrim, alpha = (progress.value * (1f - pulled)).coerceIn(0f, 1f))
+                }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onDismiss
+                    onClick = closeAll
                 ),
             contentAlignment = Alignment.BottomCenter
         ) {
             Column(
                 Modifier
                     .graphicsLayer {
-                        translationY = (1f - progress.value) * (size.height + 48.dp.toPx())
+                        translationY = (1f - progress.value) * (size.height + 48.dp.toPx()) + dragPx
                     }
                     .navigationBarsPadding()
                     .imePadding()
                     .padding(8.dp)
                     .widthIn(max = 480.dp)
                     .fillMaxWidth()
+                    .onSizeChanged { sheetH = it.height.toFloat() }
                     .glass(RoundedCornerShape(24.dp), strong = true, flat = true)
                     // swallow taps so they do not reach the scrim
                     .clickable(
@@ -619,13 +700,25 @@ internal fun GlassBottomSheet(
                         indication = null,
                         onClick = {}
                     )
-                    .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 16.dp)
+                    .nestedScroll(connection)
+                    .padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 16.dp)
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.Start
             ) {
+                // Handle + title: a bigger grab area that also drags the sheet down.
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .draggable(
+                            state = rememberDraggableState { delta -> dragPx = (dragPx + delta).coerceAtLeast(0f) },
+                            orientation = Orientation.Vertical,
+                            onDragStopped = { velocity -> settle(velocity) }
+                        )
+                ) {
                     Box(
                         Modifier
                             .align(Alignment.CenterHorizontally)
+                            .padding(top = 10.dp)
                             .size(width = 36.dp, height = 4.dp)
                             .clip(CircleShape)
                             .background(c.textSecondary.copy(alpha = 0.55f))
@@ -633,8 +726,9 @@ internal fun GlassBottomSheet(
                     Spacer(Modifier.height(14.dp))
                     Text(title, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(12.dp))
-                    content()
                 }
+                content()
+            }
         }
     }
 }
@@ -660,15 +754,17 @@ internal fun GlassCenterDialog(
         SideEffect {
             (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
         }
-        // Starts in the very first frame (no extra frame waiting for a state change).
-        val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
-        val scrim = remember { Animatable(0f) }
-        LaunchedEffect(Unit) { scrim.animateTo(1f, tween(160)) }
+        // Starts after the first frame is ready (no jump), drives scrim + card from one value.
+        val progress = remember { Animatable(0f) }
+        LaunchedEffect(Unit) {
+            withFrameNanos { }
+            progress.animateTo(1f, tween(190, easing = FastOutSlowInEasing))
+        }
         Box(
             Modifier
                 .fillMaxSize()
                 // read in the draw phase: the screen is not recomposed on every animation frame
-                .drawBehind { drawRect(c.scrim, alpha = scrim.value) }
+                .drawBehind { drawRect(c.scrim, alpha = progress.value) }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -679,33 +775,32 @@ internal fun GlassCenterDialog(
                 .imePadding(),
             contentAlignment = Alignment.Center
         ) {
-            AnimatedVisibility(
-                visibleState = visibleState,
-                enter = fadeIn(tween(140)) + scaleIn(
-                    initialScale = 0.94f,
-                    animationSpec = tween(170, easing = FastOutSlowInEasing)
-                )
+            Column(
+                Modifier
+                    .graphicsLayer {
+                        val p = progress.value
+                        alpha = p
+                        val sc = 0.94f + 0.06f * p
+                        scaleX = sc
+                        scaleY = sc
+                    }
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth()
+                    .glass(RoundedCornerShape(24.dp), strong = true, flat = true)
+                    // swallow taps so they do not reach the scrim
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    )
+                    .padding(18.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.Start
             ) {
-                Column(
-                    Modifier
-                        .padding(horizontal = 20.dp, vertical = 12.dp)
-                        .widthIn(max = 420.dp)
-                        .fillMaxWidth()
-                        .glass(RoundedCornerShape(24.dp), strong = true)
-                        // swallow taps so they do not reach the scrim
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {}
-                        )
-                        .padding(18.dp)
-                        .verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.Start
-                ) {
-                    Text(title, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(12.dp))
-                    content()
-                }
+                Text(title, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                content()
             }
         }
     }

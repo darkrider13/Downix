@@ -309,8 +309,6 @@ internal fun DetailsDialog(
                 PillButton("Delete file", onClick = onDeleteFile, modifier = Modifier.weight(1f), danger = true)
             }
         }
-        Spacer(Modifier.height(12.dp))
-        PillButton("Close", onClick = onClose, modifier = Modifier.fillMaxWidth())
     }
 }
 
