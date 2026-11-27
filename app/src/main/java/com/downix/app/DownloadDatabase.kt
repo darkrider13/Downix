@@ -209,6 +209,10 @@ class DownloadRepository private constructor(context: Context) {
 
     private val live = MutableStateFlow<Map<Long, DownloadUpdate>>(emptyMap())
     private val lastState = HashMap<Long, DownloadState>() // touched only by the collector coroutine
+    // Most bytes seen while downloading, and when they were last saved. A pause / retry that reports less
+    // (e.g. 0) must never make the list show 0%: it keeps the progress that was really reached.
+    private val bestBytes = HashMap<Long, Long>() // touched only by the collector coroutine
+    private val lastSavedAt = HashMap<Long, Long>() // touched only by the collector coroutine
 
     /** Full list for the UI, newest first, with live progress. */
     val downloads: Flow<List<DownloadItem>> =
@@ -354,8 +358,13 @@ class DownloadRepository private constructor(context: Context) {
         when (u.state) {
             DownloadState.DOWNLOADING -> {
                 // savingPercent 0: keep the final size in the database, resume needs it if the app is closed now
-                if (lastState[u.id] != DownloadState.DOWNLOADING || u.savingPercent == 0) {
+                bestBytes[u.id] = maxOf(bestBytes[u.id] ?: 0L, u.downloadedBytes)
+                val now = android.os.SystemClock.elapsedRealtime()
+                // also save the progress every 2 s, so a pause, crash or app restart still shows the real percent
+                val periodic = now - (lastSavedAt[u.id] ?: 0L) >= 2000L && u.savingPercent < 0
+                if (lastState[u.id] != DownloadState.DOWNLOADING || u.savingPercent == 0 || periodic) {
                     lastState[u.id] = DownloadState.DOWNLOADING
+                    lastSavedAt[u.id] = now
                     write(u)
                 }
                 live.update { it + (u.id to u) }
@@ -363,6 +372,8 @@ class DownloadRepository private constructor(context: Context) {
 
             DownloadState.CANCELED -> {
                 lastState.remove(u.id)
+                bestBytes.remove(u.id)
+                lastSavedAt.remove(u.id)
                 dao.deleteById(u.id)
                 live.update { it - u.id }
             }
@@ -373,7 +384,19 @@ class DownloadRepository private constructor(context: Context) {
                 } else {
                     lastState[u.id] = u.state
                 }
-                write(u) // write first, then drop live data, so the UI never flashes an old state
+                val keep = when (u.state) {
+                    DownloadState.COMPLETED -> {
+                        bestBytes.remove(u.id); lastSavedAt.remove(u.id)
+                        u
+                    }
+                    else -> {
+                        // paused / queued / waiting / failed: never show less than what was already downloaded
+                        val best = bestBytes[u.id] ?: 0L
+                        if (u.downloadedBytes < best) u.copy(downloadedBytes = best) else u
+                    }
+                }
+                lastSavedAt.remove(u.id)
+                write(keep) // write first, then drop live data, so the UI never flashes an old state
                 live.update { it - u.id }
                 when (u.state) {
                     DownloadState.COMPLETED ->
