@@ -84,6 +84,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.calculateTargetValue
 import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.ScrollScope
