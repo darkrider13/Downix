@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.text.BasicTextField
@@ -580,6 +581,76 @@ internal fun GlassBottomSheet(
                             .background(c.textSecondary.copy(alpha = 0.55f))
                     )
                     Spacer(Modifier.height(14.dp))
+                    Text(title, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(12.dp))
+                    content()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Centered pop-up (used by "Add link" and "From clipboard"): glass card in the middle of the screen,
+ * dark scrim behind it, fades in and scales up in 200 ms. Tap outside or Back closes it.
+ * Moves above the keyboard when it opens.
+ */
+@Composable
+internal fun GlassCenterDialog(
+    onDismiss: () -> Unit,
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val c = Downly.colors
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        // The scrim is drawn by us, so switch off the window's own dim.
+        val view = LocalView.current
+        SideEffect {
+            (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
+        }
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { shown = true }
+        val scrimAlpha by animateFloatAsState(if (shown) 1f else 0f, tween(200), label = "centerScrim")
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(c.scrim.copy(alpha = c.scrim.alpha * scrimAlpha))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                )
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding(),
+            contentAlignment = Alignment.Center
+        ) {
+            AnimatedVisibility(
+                visible = shown,
+                enter = fadeIn(tween(200)) + scaleIn(
+                    initialScale = 0.92f,
+                    animationSpec = tween(200, easing = FastOutSlowInEasing)
+                )
+            ) {
+                Column(
+                    Modifier
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                        .widthIn(max = 420.dp)
+                        .fillMaxWidth()
+                        .glass(RoundedCornerShape(24.dp), strong = true)
+                        // swallow taps so they do not reach the scrim
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        )
+                        .padding(18.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.Start
+                ) {
                     Text(title, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(12.dp))
                     content()

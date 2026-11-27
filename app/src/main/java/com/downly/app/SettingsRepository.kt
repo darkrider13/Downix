@@ -11,7 +11,6 @@ data class AppSettings(
     val maxParallel: Int = DEFAULT_PARALLEL,
     val wifiOnly: Boolean = false,
     val notifications: Boolean = true,
-    val autoUpdateCheck: Boolean = true,
     val downloadFolder: String = "", // picked folder (tree URI), blank = Downloads
     val themeMode: ThemeMode = ThemeMode.AUTO // Auto / Day / Dark
 ) {
@@ -23,14 +22,12 @@ data class AppSettings(
 }
 
 /**
- * The names the user sees in the Settings screen. The settings backup file uses the same names,
- * so an exported file is readable and matches the app.
+ * The names the user sees in the Settings screen.
  */
 object SettingNames {
     const val MAX_PARALLEL = "Simultaneous downloads"
     const val WIFI_ONLY = "Wi-Fi only"
     const val NOTIFICATIONS = "Notifications"
-    const val AUTO_UPDATE_CHECK = "Check for updates automatically"
     const val DOWNLOAD_FOLDER = "Download folder"
     const val THEME = "Theme"
 }
@@ -38,8 +35,7 @@ object SettingNames {
 /**
  * Saves [AppSettings] in SharedPreferences and exposes them as a [StateFlow].
  * Singleton: SettingsRepository.get(context). DownloadRepository listens to it and applies
- * maxParallel / wifiOnly to the engine; DownloadNotifier checks `notifications`;
- * the update checker checks `autoUpdateCheck`.
+ * maxParallel / wifiOnly to the engine; DownloadNotifier checks `notifications`.
  */
 class SettingsRepository private constructor(context: Context) {
 
@@ -67,11 +63,6 @@ class SettingsRepository private constructor(context: Context) {
         _settings.update { it.copy(notifications = enabled) }
     }
 
-    fun setAutoUpdateCheck(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_AUTO_UPDATE, enabled).apply()
-        _settings.update { it.copy(autoUpdateCheck = enabled) }
-    }
-
     fun setThemeMode(mode: ThemeMode) {
         prefs.edit().putString(KEY_THEME, mode.key).apply()
         _settings.update { it.copy(themeMode = mode) }
@@ -83,29 +74,11 @@ class SettingsRepository private constructor(context: Context) {
         _settings.update { it.copy(downloadFolder = folderUri) }
     }
 
-    /** Replaces every setting at once (used by "Import settings"). Values are range-checked. */
-    fun replaceAll(new: AppSettings) {
-        val safe = new.copy(
-            maxParallel = new.maxParallel.coerceIn(AppSettings.MIN_PARALLEL, AppSettings.MAX_PARALLEL),
-            // Folder access belongs to this phone only, so a backup file never changes it.
-            downloadFolder = current.downloadFolder
-        )
-        prefs.edit()
-            .putInt(KEY_PARALLEL, safe.maxParallel)
-            .putBoolean(KEY_WIFI_ONLY, safe.wifiOnly)
-            .putBoolean(KEY_NOTIFICATIONS, safe.notifications)
-            .putBoolean(KEY_AUTO_UPDATE, safe.autoUpdateCheck)
-            .putString(KEY_THEME, safe.themeMode.key)
-            .apply()
-        _settings.value = safe
-    }
-
     private fun read() = AppSettings(
         maxParallel = prefs.getInt(KEY_PARALLEL, AppSettings.DEFAULT_PARALLEL)
             .coerceIn(AppSettings.MIN_PARALLEL, AppSettings.MAX_PARALLEL),
         wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false),
         notifications = prefs.getBoolean(KEY_NOTIFICATIONS, true),
-        autoUpdateCheck = prefs.getBoolean(KEY_AUTO_UPDATE, true),
         downloadFolder = prefs.getString(KEY_FOLDER, "").orEmpty(),
         themeMode = ThemeMode.fromKey(prefs.getString(KEY_THEME, null))
     )
@@ -115,7 +88,6 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_PARALLEL = "max_parallel"
         private const val KEY_WIFI_ONLY = "wifi_only"
         private const val KEY_NOTIFICATIONS = "notifications"
-        private const val KEY_AUTO_UPDATE = "auto_update_check"
         private const val KEY_FOLDER = "download_folder"
         private const val KEY_THEME = "theme_mode"
 

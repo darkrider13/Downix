@@ -68,7 +68,7 @@ private class UpdateException(message: String) : IOException(message)
  *  - install(): hands the file to the system installer. Because every build is signed with the
  *    same key, Android installs it as an update and keeps all data and settings.
  *
- * Singleton: UpdateManager.get(context). Used by the UI and by [UpdateCheckWorker].
+ * Singleton: UpdateManager.get(context). The app checks once, 2 seconds after it opens.
  */
 class UpdateManager private constructor(context: Context) {
 
@@ -94,22 +94,19 @@ class UpdateManager private constructor(context: Context) {
 
     /**
      * [manual] = the user tapped "Check for updates": show progress and report every error.
-     * Automatic checks are skipped when the last successful check is less than 6 hours old
-     * and stay silent when they fail.
+     * The automatic check (2 s after the app opens) always asks the server and stays silent when it fails.
      */
     suspend fun check(manual: Boolean) {
         if (!isConfigured) {
             if (manual) _state.value = UpdateState.Error("Updates are not set up in this build")
             return
         }
-        if (!manual && System.currentTimeMillis() - prefs.getLong(KEY_LAST_CHECK, 0L) < AUTO_INTERVAL_MS) return
 
         checkLock.withLock {
             if (_state.value is UpdateState.Downloading) return
             if (manual) _state.value = UpdateState.Checking
             try {
                 val json = withContext(Dispatchers.IO) { fetchLatest() }
-                prefs.edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply()
 
                 val info = json?.let { parseRelease(it) }
                 if (json != null && info != null && isNewerVersion(info.versionName, BuildConfig.VERSION_NAME)) {
@@ -127,8 +124,73 @@ class UpdateManager private constructor(context: Context) {
         }
     }
 
-    /** Latest release as JSON, or null when the repository has no release yet (HTTP 404). */
+    /**
+     * Latest release as JSON, or null when the repository has no release yet.
+     * The GitHub API allows only 60 requests an hour per network, so when it refuses (403 / 429)
+     * the check falls back to the normal github.com release pages, which have no such limit.
+     */
     private fun fetchLatest(): String? {
+        return try {
+            fetchLatestApi()
+        } catch (e: RateLimited) {
+            fetchLatestWeb()
+        }
+    }
+
+    private class RateLimited : IOException("rate limited")
+
+    private fun fetchLatestWeb(): String? {
+        val repo = BuildConfig.UPDATE_REPO
+        val noRedirect = client.newBuilder().followRedirects(false).build()
+
+        // 1) /releases/latest redirects to /releases/tag/<tag>
+        val tag = noRedirect.newCall(
+            Request.Builder()
+                .url("https://github.com/$repo/releases/latest")
+                .header("User-Agent", "Downly/${BuildConfig.VERSION_NAME}")
+                .build()
+        ).execute().use { response ->
+            when {
+                response.code == 404 -> return null
+                response.isRedirect -> {
+                    val location = response.header("Location").orEmpty()
+                    if (!location.contains("/tag/")) return null
+                    java.net.URLDecoder.decode(location.substringAfterLast("/tag/").substringBefore('?'), "UTF-8")
+                }
+                else -> throw UpdateException("Update server problem (${response.code})")
+            }
+        }
+
+        // 2) the release's file list page holds the link to the APK
+        val html = client.newCall(
+            Request.Builder()
+                .url("https://github.com/$repo/releases/expanded_assets/$tag")
+                .header("User-Agent", "Downly/${BuildConfig.VERSION_NAME}")
+                .build()
+        ).execute().use { response ->
+            if (!response.isSuccessful) throw UpdateException("Update server problem (${response.code})")
+            response.body?.string().orEmpty()
+        }
+        val path = Regex("href=\"(/[^\"]+/releases/download/[^\"]+\\.apk)\"", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)?.replace("&amp;", "&") ?: return null
+
+        return JSONObject()
+            .put("tag_name", tag)
+            .put("body", "")
+            .put("html_url", "https://github.com/$repo/releases/tag/$tag")
+            .put(
+                "assets",
+                org.json.JSONArray().put(
+                    JSONObject()
+                        .put("name", path.substringAfterLast('/'))
+                        .put("browser_download_url", "https://github.com$path")
+                        .put("size", 0)
+                )
+            )
+            .toString()
+    }
+
+    private fun fetchLatestApi(): String? {
         val request = Request.Builder()
             .url("https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases/latest")
             .header("Accept", "application/vnd.github+json")
@@ -138,8 +200,7 @@ class UpdateManager private constructor(context: Context) {
         return client.newCall(request).execute().use { response ->
             when {
                 response.code == 404 -> null
-                response.code == 403 || response.code == 429 ->
-                    throw UpdateException("Too many checks right now. Try again in a while.")
+                response.code == 403 || response.code == 429 -> throw RateLimited()
                 !response.isSuccessful -> throw UpdateException("Update server problem (${response.code})")
                 else -> response.body?.string() ?: throw UpdateException("Update server sent an empty answer")
             }
@@ -320,16 +381,6 @@ class UpdateManager private constructor(context: Context) {
         }
     }
 
-    /* ------------------------ announce / notify once ------------------------ */
-
-    /** True the first time a version is found: the app then opens the update popup by itself. */
-    fun shouldAnnounce(version: String): Boolean = prefs.getString(KEY_ANNOUNCED, null) != version
-    fun markAnnounced(version: String) = prefs.edit().putString(KEY_ANNOUNCED, version).apply()
-
-    /** Same for the background notification, so one version never notifies twice. */
-    fun shouldNotify(version: String): Boolean = prefs.getString(KEY_NOTIFIED, null) != version
-    fun markNotified(version: String) = prefs.edit().putString(KEY_NOTIFIED, version).apply()
-
     /* ------------------------------ helpers ------------------------------ */
 
     /** The last release found (saved on disk) is shown again after the app restarts, without a network call. */
@@ -365,11 +416,7 @@ class UpdateManager private constructor(context: Context) {
 
     companion object {
         private const val FILE = "downly_update"
-        private const val KEY_LAST_CHECK = "last_check"
         private const val KEY_RELEASE = "latest_release"
-        private const val KEY_ANNOUNCED = "announced_version"
-        private const val KEY_NOTIFIED = "notified_version"
-        private const val AUTO_INTERVAL_MS = 6L * 60 * 60 * 1000
 
         @Volatile private var instance: UpdateManager? = null
 

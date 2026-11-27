@@ -118,7 +118,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -236,15 +235,6 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     val updateState: StateFlow<UpdateState> = updates.state
     val updatesConfigured: Boolean get() = updates.isConfigured
 
-    init {
-        // Background update check follows the "Check for updates automatically" setting
-        // (toggle, import and first start all go through here).
-        viewModelScope.launch {
-            settingsRepo.settings.map { it.autoUpdateCheck }.distinctUntilChanged()
-                .collect { UpdateCheckWorker.sync(app, it) }
-        }
-    }
-
     val downloads: StateFlow<List<DownloadItem>> =
         repo.downloads.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -280,79 +270,16 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     fun setMaxParallel(count: Int) = settingsRepo.setMaxParallel(count)
     fun setWifiOnly(enabled: Boolean) = settingsRepo.setWifiOnly(enabled)
     fun setNotifications(enabled: Boolean) = settingsRepo.setNotifications(enabled)
-    fun setAutoUpdateCheck(enabled: Boolean) = settingsRepo.setAutoUpdateCheck(enabled)
     fun setDownloadFolder(folderUri: String) = settingsRepo.setDownloadFolder(folderUri)
     fun setThemeMode(mode: ThemeMode) = settingsRepo.setThemeMode(mode)
 
     /* ---------------------------- updates ---------------------------- */
 
     fun checkForUpdates() { viewModelScope.launch { updates.check(manual = true) } }
-    fun autoCheckForUpdates() {
-        if (settingsRepo.current.autoUpdateCheck) viewModelScope.launch { updates.check(manual = false) }
-    }
+    fun autoCheckForUpdates() { viewModelScope.launch { updates.check(manual = false) } }
     fun downloadUpdate() = updates.startDownload()
     fun installUpdate(context: Context): InstallStart = updates.install(context)
-    fun shouldAnnounceUpdate(version: String): Boolean = updates.shouldAnnounce(version)
-    fun markUpdateAnnounced(version: String) = updates.markAnnounced(version)
 
-    /* ------------------------ settings backup ------------------------ */
-
-    /** Writes the settings file to [uri] (chosen by the user in the system file picker). */
-    fun exportSettings(uri: Uri, onResult: (String) -> Unit) {
-        viewModelScope.launch {
-            val message = withContext(Dispatchers.IO) {
-                try {
-                    val text = SettingsBackup.export(settingsRepo.current, BuildConfig.VERSION_NAME)
-                    val stream = app.contentResolver.openOutputStream(uri, "wt")
-                    if (stream == null) {
-                        "Could not save the file"
-                    } else {
-                        stream.use { it.write(text.toByteArray(Charsets.UTF_8)) }
-                        "Settings exported"
-                    }
-                } catch (e: Exception) {
-                    "Could not save the file"
-                }
-            }
-            onResult(message)
-        }
-    }
-
-    /** Reads a settings file from [uri] and applies every valid setting in it. */
-    fun importSettings(uri: Uri, onResult: (String) -> Unit) {
-        viewModelScope.launch {
-            val message = withContext(Dispatchers.IO) {
-                try {
-                    val text = app.contentResolver.openInputStream(uri)?.use { readLimited(it) }
-                        ?: return@withContext "Could not read the file"
-                    val (result, restored) = SettingsBackup.import(text, settingsRepo.current)
-                    when (result) {
-                        is SettingsBackup.ImportResult.Failure -> result.message
-                        is SettingsBackup.ImportResult.Success -> {
-                            settingsRepo.replaceAll(restored)
-                            "Settings restored: " + result.names.joinToString(", ")
-                        }
-                    }
-                } catch (e: Exception) {
-                    "Could not read the file"
-                }
-            }
-            onResult(message)
-        }
-    }
-
-    /** A settings file is tiny: refuse anything over 64 KB instead of reading it all into memory. */
-    private fun readLimited(input: InputStream): String? {
-        val out = ByteArrayOutputStream()
-        val buffer = ByteArray(8 * 1024)
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0) break
-            out.write(buffer, 0, read)
-            if (out.size() > 64 * 1024) return null
-        }
-        return out.toString(Charsets.UTF_8.name())
-    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -401,7 +328,6 @@ private fun MainScreen(
         }
     }
     val clipboardManager = LocalClipboardManager.current
-    val menuBlur by animateFloatAsState(if (menuOpen) 10f else 0f, tween(200), label = "menuBlur")
     var addInitial by remember { mutableStateOf("") }
     var confirmCancel by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmRemove by remember { mutableStateOf<DownloadItem?>(null) }
@@ -414,12 +340,15 @@ private fun MainScreen(
         }
     }
 
-    // Look for a new build when the app opens, and open the update popup once per new version.
-    LaunchedEffect(Unit) { vm.autoCheckForUpdates() }
+    // The check starts 2 seconds after the app opens; if a new version is found the popup opens.
+    var updateAnnounced by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(2000)
+        vm.autoCheckForUpdates()
+    }
     LaunchedEffect(updateState) {
-        val found = (updateState as? UpdateState.Available)?.info
-        if (found != null && vm.shouldAnnounceUpdate(found.versionName)) {
-            vm.markUpdateAnnounced(found.versionName)
+        if (updateState is UpdateState.Available && !updateAnnounced) {
+            updateAnnounced = true
             showUpdate = true
         }
     }
@@ -441,7 +370,7 @@ private fun MainScreen(
     }
 
     DownlyBackground {
-        Column(Modifier.fillMaxSize().blur(menuBlur.dp).statusBarsPadding()) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Header(
                 downloads = downloads,
                 searchOpen = searchOpen,
@@ -568,13 +497,10 @@ private fun MainScreen(
                 onMaxParallel = vm::setMaxParallel,
                 onWifiOnly = vm::setWifiOnly,
                 onNotifications = vm::setNotifications,
-                onAutoUpdate = vm::setAutoUpdateCheck,
                 onDownloadFolder = vm::setDownloadFolder,
                 onCheckUpdate = vm::checkForUpdates,
                 onOpenUpdate = { showUpdate = true },
                 onInstallUpdate = { installUpdate(context, vm) },
-                onExport = vm::exportSettings,
-                onImport = vm::importSettings,
                 onThemeMode = vm::setThemeMode,
                 onClose = { showSettings = false }
             )
@@ -679,7 +605,6 @@ private fun Header(
         Modifier
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 4.dp)
-            .glass(RoundedCornerShape(18.dp))
             .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1125,7 +1050,7 @@ private fun AddLinkDialog(
         }
     }
 
-    GlassBottomSheet(onDismiss = onDismiss, title = "Add link") {
+    GlassCenterDialog(onDismiss = onDismiss, title = "Add link") {
         val c = Downly.colors
         GlassField(
             value = text,
@@ -1283,13 +1208,10 @@ private fun SettingsScreen(
     onMaxParallel: (Int) -> Unit,
     onWifiOnly: (Boolean) -> Unit,
     onNotifications: (Boolean) -> Unit,
-    onAutoUpdate: (Boolean) -> Unit,
     onDownloadFolder: (String) -> Unit,
     onCheckUpdate: () -> Unit,
     onOpenUpdate: () -> Unit,
     onInstallUpdate: () -> Unit,
-    onExport: (Uri, (String) -> Unit) -> Unit,
-    onImport: (Uri, (String) -> Unit) -> Unit,
     onThemeMode: (ThemeMode) -> Unit,
     onClose: () -> Unit
 ) {
@@ -1298,13 +1220,6 @@ private fun SettingsScreen(
     val showMessage: (String) -> Unit = { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
     BackHandler(onBack = onClose)
 
-    // System file picker: the user chooses where the backup is saved / which file is restored.
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
-    ) { uri -> if (uri != null) onExport(uri, showMessage) }
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri -> if (uri != null) onImport(uri, showMessage) }
     val folderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
@@ -1327,7 +1242,6 @@ private fun SettingsScreen(
                     Modifier
                         .fillMaxWidth()
                         .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 4.dp)
-                        .glass(RoundedCornerShape(18.dp))
                         .padding(horizontal = 6.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1397,10 +1311,6 @@ private fun SettingsScreen(
 
                     SettingSection("Updates")
                     SettingGroup {
-                        SettingRow(title = "Check automatically", subtitle = "Look for a new version") {
-                            GlassSwitch(settings.autoUpdateCheck, onAutoUpdate)
-                        }
-                        SettingDivider()
                         UpdateSettingsRow(
                             state = updateState,
                             configured = updatesConfigured,
@@ -1408,25 +1318,6 @@ private fun SettingsScreen(
                             onOpen = onOpenUpdate,
                             onInstall = onInstallUpdate
                         )
-                    }
-
-                    SettingSection("Backup")
-                    SettingGroup {
-                        SettingRow(title = "Export settings", subtitle = "Save to a file") {
-                            PillButton(
-                                "Export",
-                                onClick = { exportLauncher.launch(SettingsBackup.suggestedFileName()) },
-                                small = true
-                            )
-                        }
-                        SettingDivider()
-                        SettingRow(title = "Import settings", subtitle = "Restore from a file") {
-                            PillButton(
-                                "Import",
-                                onClick = { importLauncher.launch(arrayOf("*/*")) },
-                                small = true
-                            )
-                        }
                     }
                 }
 
