@@ -176,6 +176,17 @@ How it works:
 - app/build.gradle.kts already has ALL dependencies (Compose, Material3, icons, OkHttp, coroutines, Room + KSP)
 - No gradle wrapper (Step 9 workflow uses gradle/actions/setup-gradle)
 
+## Round 2 (UI + updater fixes) - ALL DONE
+Request from the user (screenshots): fix blur on Add link, centered popups, remove header cards, fix update check, remove Backup.
+| # | Step | Status |
+|---|------|--------|
+| R1 | Backup removed completely (SettingsBackup.kt deleted, Settings section, ViewModel code, replaceAll, README) | DONE |
+| R2 | Updates: "Check automatically" switch + setting removed; UpdateCheckWorker.kt + work-runtime dependency removed (no more background checks); app checks 2 s after opening (MainScreen LaunchedEffect delay(2000)); popup opens when an update is found (once per app launch); 6-hour skip removed from UpdateManager; GitHub API 403/429 now falls back to github.com release pages (fetchLatestWeb) | DONE |
+| R3 | Header card removed (Downloads title row) and Settings top bar card removed; gear icon stays top right | DONE |
+| R4 | Add link / From clipboard popup is now a centered dialog (GlassCenterDialog in DownlyTheme.kt); menu blur removed (only the dim overlay stays) | DONE |
+Notes: not compiled here (no SDK). If the update check still says "up to date", the GitHub repo may be private (releases/latest gives 404 to the app) or the release has no .apk asset.
+`UpdateSettingsRow` ("Check now") is unchanged. `SettingNames.AUTO_UPDATE_CHECK` and `AppSettings.autoUpdateCheck` no longer exist.
+
 ## Things to remember
 - Code has not been compiled yet (no network / Android SDK in the build sandbox); first real build happens when the user pushes to GitHub (Step 8 workflow)
 - Never regenerate or replace the signing key after users installed a build: every build must use the same key

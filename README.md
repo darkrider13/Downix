@@ -31,9 +31,9 @@ Back up `signing-private/` somewhere safe. Lost key = users must uninstall once 
 Keep `signing-private/` next to `app/`, then: `gradle :app:assembleRelease -PbuildNumber=5 -PupdateRepo=OWNER/REPO`
 (no key = the build stops with a clear message).
 
-## Settings backup
-Settings > Backup > Export / Import. The file is JSON with only settings (never the download list); every entry has
-the same name the app shows (for example "Wi-Fi only"), so it is readable.
+## Updates
+The app checks GitHub for a new release 2 seconds after it opens (no background checks). If a newer build exists, the update popup opens.
+Settings > Updates > Check now checks again by hand.
 
 ## UI design
 Day and AMOLED Dark themes follow the Downly_Design_AI pack. All colours, glass surfaces, buttons, toggles, sheets, toast and icons
