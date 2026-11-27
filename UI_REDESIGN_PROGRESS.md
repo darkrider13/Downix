@@ -25,10 +25,10 @@ Hand this file + the latest project zip + Downly_Design_AI.zip to any Claude. Re
 | 1 | Theme foundation (Day / AMOLED Dark tokens, background glows, icons, shared buttons, theme setting) + Home screen (header, chips, cards, progress, white + button) | DONE |
 | 2 | Plus button animated menu (From clipboard / Add link, overlay, rotate to x) + "Add link" bottom sheet | DONE |
 | 3 | Delete bottom sheet ("Delete download?" + checkbox + Cancel / Delete) + toast pill ("File deleted from phone" / "Removed from list") + cancel-download and details dialogs restyled | DONE |
-| 4 | Settings as a full screen (glass top bar with back arrow, white section pills, glass groups, segmented theme switch, custom 38x22 toggles, white Done button) | PENDING |
+| 4 | Settings as a full screen (glass top bar with back arrow, white section pills, glass groups, segmented theme switch, custom 38x22 toggles, white Done button) | DONE |
 | 5 | Final polish: update banner / update popup / offline banner / search field / empty states, last check of every screen against the PNGs, README + PROGRESS.md notes | PENDING |
 
-Progress: 3 of 5 steps done | 2 remaining | 60% done, 40% remaining.
+Progress: 4 of 5 steps done | 1 remaining | 80% done, 20% remaining.
 
 ## Step 1 notes (done)
 New file `DownlyTheme.kt` (package com.downly.app) holds everything shared:
@@ -91,16 +91,24 @@ Toast: state `toastText` + `showToast()` in MainScreen, pill at bottom (left 16,
 (ViewModel text changed from "File deleted"), "Removed from list" (list-only delete), plus the existing "already gone" / "could not delete" texts. The old Android Toast is no longer used for deletes.
 Not done on purpose: the "Cancel download" X on running cards still opens the cancel sheet (no toast).
 
-## Next: Step 4 (Settings as a full screen) - what to do
-- Replace `SettingsDialog` (MainActivity.kt, centred popup) by a full screen (show it instead of the main list while `showSettings` is true, Back closes it):
-  glass top bar (back arrow DownlyIcons.Back + "Settings" 16sp bold, radius 18, margin 12), then sections with small WHITE pill labels (black 10sp bold uppercase, letter spacing),
-  each section one glass group (radius 16, margin 12), rows min height 52, title 13sp, subtitle 11sp, thin dividers (`c.divider`).
-- General: Theme (`ThemeSegmented`: glass container, selected white pill; subtitle "Day or AMOLED dark"), Download folder (subtitle = current folder, white "Change" small pill),
-  Simultaneous downloads (white round - and + 32 dp, number between; subtitle "Files at the same time").
-- Network and alerts: Wi-Fi only ("Never use mobile data"), Notifications ("When finished or failed") with the custom 38x22 toggle: ON = white track + black knob, OFF = gray track + gray knob (`toggleOffTrack`, `paused`).
-- Updates: Check automatically ("Look for a new version", toggle), Check now (subtitle "Downly <version>", white "Check" pill). Keep the existing update row logic (UpdateSettingsRow in UpdateUi.kt).
-- Backup: Export settings ("Save to a file"), Import settings ("Restore from a file"), white "Export" / "Import" pills. Keep all existing logic (file pickers, SettingsBackup).
-- Bottom: full-width WHITE "Done" button (closes settings). Keep every existing setting and callback of SettingsDialog.
+## Step 4 notes (done)
+MainActivity.kt: `SettingsDialog` (popup) is replaced by `SettingsScreen`, a full-screen overlay drawn INSIDE MainScreen's `DownlyBackground` box
+(after PlusMenu / toast, so it covers them): `AnimatedVisibility(showSettings)`, own `DownlyBackground`, Back button / system Back / "Done" close it.
+Same parameters and callbacks as the old dialog (nothing removed): theme, download folder (+ new "Default folder / Reset" row shown only when a custom folder is set =
+the old "Use Downloads folder" button), simultaneous downloads, Wi-Fi only, notifications, auto update check, update row, export / import, file pickers.
+- Layout: glass top bar (back arrow + "Settings" 16sp bold), white section pills (GENERAL, NETWORK AND ALERTS, UPDATES, BACKUP), `SettingGroup` (glass radius 16, margin 12),
+  `SettingRow` min 52 / title 13sp / subtitle 11sp, `SettingDivider` = `c.divider`, full-width white "Done" (min height 48).
+- `GlassSwitch` is now the custom 38x22 toggle (ON white track + black knob, OFF gray track + gray knob, 40 dp tap area, animated knob).
+- `Stepper`: white round - / + (32) with `DownlyIcons.Minus / Plus`. Download folder subtitle = folder name only (e.g. "Movies").
+UpdateUi.kt: row title "Check now", default subtitle "Downly <version>", small white pills.
+Removed from the old popup: the "Downly <version>" line at the bottom (the version is now the subtitle of "Check now").
+
+## Next: Step 5 (final polish) - what to do
+- Restyle what is still old: `UpdateBanner` (under the header), `UpdateDialog` (UpdateUi.kt: use `GlassBottomSheet`, white / green / red button rules), `OfflineBanner`,
+  `SearchField` (DownloadTools.kt: glass, radius 12, height 44 like `GlassField`), `EmptyState` / `EmptyListMessage`.
+- Check every screen against the PNGs in Day and Dark (home, plus menu, delete sheet, toast, settings), fix small size / colour differences.
+- `themes.xml` window background is black: use a day-aware window background to avoid a black flash on cold start in Day mode.
+- Update README.md and PROGRESS.md notes (UI redesign finished, design tokens in DownlyTheme.kt). Then the first GitHub build: fix compile errors if any.
 
 ## Things to remember
 - Code never compiled here. First real build happens on GitHub (release.yml). If the user reports compile errors, fix those first.
