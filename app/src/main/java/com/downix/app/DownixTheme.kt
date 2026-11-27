@@ -53,6 +53,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedContent
@@ -822,6 +823,8 @@ internal fun GlassDialog(onDismiss: () -> Unit, content: @Composable ColumnScope
  */
 internal object PopupLayers {
     var count by mutableIntStateOf(0)
+    /** Number of open popups that must appear / disappear with no animation (the blur behind them snaps too). */
+    var instant by mutableIntStateOf(0)
 }
 
 /**
@@ -831,7 +834,7 @@ internal object PopupLayers {
 internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 10.dp): Modifier = composed {
     val strength = animateFloatAsState(
         targetValue = if (active) 1f else 0f,
-        animationSpec = tween(if (active) 240 else 70),
+        animationSpec = if (PopupLayers.instant > 0) snap() else tween(if (active) 240 else 70),
         label = "popupBlur"
     )
     val maxPx = with(LocalDensity.current) { maxRadius.toPx() }
@@ -914,6 +917,7 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
 internal fun GlassBottomSheet(
     onDismiss: () -> Unit,
     title: String,
+    instant: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val c = Downix.colors
@@ -921,7 +925,7 @@ internal fun GlassBottomSheet(
     val density = LocalDensity.current
     // progress: 0 = hidden, 1 = shown. dragPx: how far the finger pulled the sheet down.
     // Both are read only while drawing, so nothing is recomposed while the sheet moves.
-    val progress = remember { Animatable(0f) }
+    val progress = remember { Animatable(if (instant) 1f else 0f) }
     var dragPx by remember { mutableFloatStateOf(0f) }
     var sheetH by remember { mutableFloatStateOf(0f) }
     var closing by remember { mutableStateOf(false) }
@@ -929,6 +933,7 @@ internal fun GlassBottomSheet(
 
     // Starts after the first frame is ready, so the heavy first frame does not eat the animation.
     LaunchedEffect(Unit) {
+        if (instant) return@LaunchedEffect
         withFrameNanos { }
         progress.animateTo(1f, tween(240, easing = FastOutSlowInEasing))
     }
@@ -937,6 +942,10 @@ internal fun GlassBottomSheet(
         if (!closing) {
             closing = true
             scope.launch {
+                if (instant) {
+                    currentOnDismiss()
+                    return@launch
+                }
                 val from = dragPx
                 val to = sheetH + with(density) { 48.dp.toPx() }
                 animate(from, to, animationSpec = tween(190, easing = FastOutLinearInEasing)) { v, _ -> dragPx = v }
@@ -990,6 +999,12 @@ internal fun GlassBottomSheet(
         onDismissRequest = closeAll,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
+        if (instant) {
+            DisposableEffect(Unit) {
+                PopupLayers.instant++
+                onDispose { PopupLayers.instant-- }
+            }
+        }
         val covered = rememberPopupCovered(closing)
         Box(
             Modifier

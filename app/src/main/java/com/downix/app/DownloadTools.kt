@@ -325,7 +325,7 @@ internal fun DetailsDialog(
 /** Delete sheet opened from the details popup (file is already known to be on the phone). */
 @Composable
 internal fun ConfirmDeleteFileDialog(fileName: String, onKeep: () -> Unit, onDelete: () -> Unit) {
-    GlassBottomSheet(onDismiss = onKeep, title = "Delete file from phone?") {
+    GlassBottomSheet(onDismiss = onKeep, title = "Delete file from phone?", instant = true) {
         Text(
             "${fileName.ifBlank { "This file" }} will be deleted from your phone and removed from the list. This can't be undone.",
             color = Downix.colors.textSecondary,
@@ -354,7 +354,7 @@ internal fun ConfirmRemoveDialog(
 ) {
     val c = Downix.colors
     var alsoFile by remember { mutableStateOf(false) }
-    GlassBottomSheet(onDismiss = onCancel, title = "Delete download?") {
+    GlassBottomSheet(onDismiss = onCancel, title = "Delete download?", instant = true) {
         Text(
             "${item.fileName.ifBlank { "This file" }} will be removed from the list.",
             color = c.textSecondary,
@@ -404,7 +404,7 @@ internal fun ConfirmBulkDeleteDialog(
 ) {
     val c = Downix.colors
     var alsoFile by remember { mutableStateOf(false) }
-    GlassBottomSheet(onDismiss = onCancel, title = if (count == 1) "Delete 1 download?" else "Delete $count downloads?") {
+    GlassBottomSheet(onDismiss = onCancel, title = if (count == 1) "Delete 1 download?" else "Delete $count downloads?", instant = true) {
         Text(
             "They will be removed from the list. Downloads that are not finished are cancelled and their partial files are deleted.",
             color = c.textSecondary,
