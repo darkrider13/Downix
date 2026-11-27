@@ -398,6 +398,7 @@ private fun MainScreen(
     // Multi-select: long press a card to start, tap cards to add / remove, then delete them together.
     var selected by remember { mutableStateOf(setOf<Long>()) }
     var confirmBulk by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
     val selecting = selected.isNotEmpty()
     LaunchedEffect(filter, query) { selected = emptySet() }
     LaunchedEffect(visible) {
@@ -472,8 +473,7 @@ private fun MainScreen(
                     searchOpen = !searchOpen
                 },
                 onPauseAll = vm::pauseAll,
-                onClearFinished = vm::clearFinished,
-                onNothingToClear = { showToast("No finished downloads to clear") },
+                onClearFinished = { confirmClear = true },
                 onSettings = { showSettings = true },
                 updatePending = updateState is UpdateState.Available ||
                     updateState is UpdateState.Downloading ||
@@ -701,6 +701,16 @@ private fun MainScreen(
         }
     }
 
+    if (confirmClear) {
+        ConfirmClearDialog(
+            onCancel = { confirmClear = false },
+            onClear = {
+                vm.clearFinished()
+                confirmClear = false
+            }
+        )
+    }
+
     confirmCancel?.let { item ->
         ConfirmCancelDialog(
             fileName = item.fileName,
@@ -722,7 +732,6 @@ private fun Header(
     onPauseAll: () -> Unit,
     onClearFinished: () -> Unit,
     onSettings: () -> Unit,
-    onNothingToClear: () -> Unit = {},
     updatePending: Boolean = false,
     loaded: Boolean = true,
     selectedCount: Int = 0,
@@ -744,7 +753,7 @@ private fun Header(
                 onDelete = onDeleteSelected
             )
         } else {
-            NormalHeader(downloads, searchOpen, onSearch, onPauseAll, onClearFinished, onSettings, updatePending, loaded, onNothingToClear)
+            NormalHeader(downloads, searchOpen, onSearch, onPauseAll, onClearFinished, onSettings, updatePending, loaded)
         }
     }
 }
@@ -792,12 +801,10 @@ private fun NormalHeader(
     onClearFinished: () -> Unit,
     onSettings: () -> Unit,
     updatePending: Boolean = false,
-    loaded: Boolean = true,
-    onNothingToClear: () -> Unit = {}
+    loaded: Boolean = true
 ) {
     val c = Downix.colors
     val active = downloads.count { it.isActive }
-    val finished = downloads.count { !it.isActive && it.state != DownloadState.PAUSED }
     val speed = downloads.sumOf { it.speedBytesPerSec }
     val subtitle = when {
         !loaded -> ""
@@ -835,8 +842,7 @@ private fun NormalHeader(
             description = "Clear finished downloads",
             tint = c.red,
             onClick = onClearFinished,
-            enabled = finished > 0,
-            onDisabledClick = onNothingToClear
+            enabled = downloads.isNotEmpty()
         )
         Box {
             PlainIconButton(
@@ -1529,6 +1535,23 @@ private fun MorphActionButton(
                     maxLines = 1
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ConfirmClearDialog(onCancel: () -> Unit, onClear: () -> Unit) {
+    GlassBottomSheet(onDismiss = onCancel, title = "Clear finished downloads?", instant = true) {
+        Text(
+            "Completed, failed and cancelled downloads will be removed from the list. Files already saved on your phone are not deleted.",
+            color = Downix.colors.textSecondary,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Cancel", onClick = onCancel, modifier = Modifier.weight(1f))
+            PillButton("Clear", onClick = onClear, danger = true, modifier = Modifier.weight(1f))
         }
     }
 }
