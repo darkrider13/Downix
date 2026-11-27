@@ -39,6 +39,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -250,7 +252,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     fun deleteWithFile(id: Long, onResult: (String) -> Unit) {
         viewModelScope.launch {
             val message = when (repo.deleteWithFile(id)) {
-                FileDeleteResult.DELETED -> "File deleted"
+                FileDeleteResult.DELETED -> "File deleted from phone"
                 FileDeleteResult.ALREADY_GONE -> "The file was already gone. Removed from the list."
                 FileDeleteResult.FAILED ->
                     "Could not delete the file. Delete it in your Files app, then remove it from the list."
@@ -377,6 +379,21 @@ private fun MainScreen(
     val detailsItem = downloads.firstOrNull { it.id == detailsId }
     var showAdd by remember { mutableStateOf(false) }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
+    var toastText by remember { mutableStateOf<String?>(null) }
+    var lastToast by remember { mutableStateOf("") }
+    var toastTick by remember { mutableStateOf(0) }
+    val showToast: (String) -> Unit = { message ->
+        lastToast = message
+        toastText = message
+        toastTick++
+    }
+    // The toast hides itself after 2.6 s (a new message restarts the timer).
+    LaunchedEffect(toastTick) {
+        if (toastTick > 0) {
+            delay(2600)
+            toastText = null
+        }
+    }
     val clipboardManager = LocalClipboardManager.current
     val menuBlur by animateFloatAsState(if (menuOpen) 10f else 0f, tween(200), label = "menuBlur")
     var addInitial by remember { mutableStateOf("") }
@@ -520,6 +537,18 @@ private fun MainScreen(
                 }
             }
         )
+
+        AnimatedVisibility(
+            visible = toastText != null,
+            enter = fadeIn(tween(200)) + slideInVertically(tween(260)) { it },
+            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it },
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 84.dp, bottom = 22.dp)
+        ) {
+            DownlyToast(text = toastText ?: lastToast)
+        }
     }
 
     if (showAdd) {
@@ -583,7 +612,7 @@ private fun MainScreen(
             fileName = item.fileName,
             onKeep = { confirmDeleteFile = null },
             onDelete = {
-                vm.deleteWithFile(item.id) { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                vm.deleteWithFile(item.id) { showToast(it) }
                 confirmDeleteFile = null
                 detailsId = null
             }
@@ -597,9 +626,10 @@ private fun MainScreen(
             onListOnly = {
                 vm.remove(item.id)
                 confirmRemove = null
+                showToast("Removed from list")
             },
             onDeleteFile = {
-                vm.deleteWithFile(item.id) { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                vm.deleteWithFile(item.id) { showToast(it) }
                 confirmRemove = null
             }
         )
@@ -1216,20 +1246,17 @@ private fun AddLinkDialog(
 
 @Composable
 private fun ConfirmCancelDialog(fileName: String, onKeep: () -> Unit, onCancelDownload: () -> Unit) {
-    GlassDialog(onKeep) {
-        Text("Cancel this download?", color = Downly.colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
+    GlassBottomSheet(onDismiss = onKeep, title = "Cancel this download?") {
         Text(
             "${fileName.ifBlank { "This file" }} will be removed and the part already downloaded will be deleted.",
             color = Downly.colors.textSecondary,
-            fontSize = 14.sp,
-            lineHeight = 20.sp
+            fontSize = 13.sp,
+            lineHeight = 18.sp
         )
-        Spacer(Modifier.height(22.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            PillButton("Keep", onClick = onKeep, primary = false)
-            Spacer(Modifier.width(10.dp))
-            PillButton("Cancel download", onClick = onCancelDownload, danger = true)
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Keep", onClick = onKeep, modifier = Modifier.weight(1f))
+            PillButton("Cancel download", onClick = onCancelDownload, danger = true, modifier = Modifier.weight(1f))
         }
     }
 }

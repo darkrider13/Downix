@@ -36,6 +36,9 @@ import androidx.compose.material3.TextFieldColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -238,9 +241,9 @@ private fun dateText(millis: Long): String =
 @Composable
 private fun DetailRow(label: String, value: String, maxLines: Int = 3) {
     Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
-        Text(label, color = Downly.colors.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Text(label, color = Downly.colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(2.dp))
-        Text(value, color = Downly.colors.text, fontSize = 14.sp, lineHeight = 19.sp, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+        Text(value, color = Downly.colors.text, fontSize = 13.sp, lineHeight = 18.sp, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -254,16 +257,16 @@ internal fun DetailsDialog(
     onOpen: () -> Unit,
     onDeleteFile: () -> Unit
 ) {
-    GlassDialog(onClose) {
+    GlassBottomSheet(onDismiss = onClose, title = "Details") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             FileTile(item.fileName)
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(12.dp))
             Text(
                 item.fileName.ifBlank { "Getting file info" },
                 color = Downly.colors.text,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 23.sp,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                lineHeight = 18.sp,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -278,7 +281,7 @@ internal fun DetailsDialog(
         DetailRow("Added", dateText(item.createdAt))
         SettingDivider()
         Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
-            Text("Status", color = Downly.colors.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text("Status", color = Downly.colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(4.dp))
             StatusLine(item)
         }
@@ -308,34 +311,33 @@ internal fun DetailsDialog(
             }
         }
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            PillButton("Close", onClick = onClose, primary = false)
-        }
+        PillButton("Close", onClick = onClose, modifier = Modifier.fillMaxWidth())
     }
 }
 
+/** Delete sheet opened from the details popup (file is already known to be on the phone). */
 @Composable
 internal fun ConfirmDeleteFileDialog(fileName: String, onKeep: () -> Unit, onDelete: () -> Unit) {
-    GlassDialog(onKeep) {
-        Text("Delete file from your phone?", color = Downly.colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
+    GlassBottomSheet(onDismiss = onKeep, title = "Delete file from phone?") {
         Text(
-            "${fileName.ifBlank { "This file" }} will be deleted from your phone and removed from the list. " +
-                "This can't be undone.",
+            "${fileName.ifBlank { "This file" }} will be deleted from your phone and removed from the list. This can't be undone.",
             color = Downly.colors.textSecondary,
-            fontSize = 14.sp,
-            lineHeight = 20.sp
+            fontSize = 13.sp,
+            lineHeight = 18.sp
         )
-        Spacer(Modifier.height(20.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            PillButton("Keep", onClick = onKeep, primary = false)
-            Spacer(Modifier.width(10.dp))
-            PillButton("Delete file", onClick = onDelete, danger = true)
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Cancel", onClick = onKeep, outlineRed = true, modifier = Modifier.weight(1f))
+            PillButton("Delete", onClick = onDelete, danger = true, modifier = Modifier.weight(1f))
         }
     }
 }
 
-/** Asked when a finished download is removed: only the list entry, or the file on the phone as well. */
+/**
+ * "Delete download?" sheet (design: delete-sheet). Asked when a finished download is removed.
+ * Checkbox "Also delete the file from phone" is unchecked by default:
+ * unchecked = only the list entry is removed, checked = the file on the phone is deleted too.
+ */
 @Composable
 internal fun ConfirmRemoveDialog(
     item: DownloadItem,
@@ -343,22 +345,41 @@ internal fun ConfirmRemoveDialog(
     onListOnly: () -> Unit,
     onDeleteFile: () -> Unit
 ) {
-    GlassDialog(onCancel) {
-        Text("Delete the file too?", color = Downly.colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
+    val c = Downly.colors
+    var alsoFile by remember { mutableStateOf(false) }
+    GlassBottomSheet(onDismiss = onCancel, title = "Delete download?") {
         Text(
-            "${item.fileName.ifBlank { "This file" }} is saved in ${SaveLocation.savedFolderLabel(item.savedUri)}. " +
-                "If you delete the file too, it is removed from your phone and this can't be undone.",
-            color = Downly.colors.textSecondary,
-            fontSize = 14.sp,
-            lineHeight = 20.sp
+            "${item.fileName.ifBlank { "This file" }} will be removed from the list.",
+            color = c.textSecondary,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
         )
-        Spacer(Modifier.height(20.dp))
-        PillButton("Delete file too", onClick = onDeleteFile, modifier = Modifier.fillMaxWidth(), danger = true)
-        Spacer(Modifier.height(10.dp))
-        PillButton("Remove from list only", onClick = onListOnly, modifier = Modifier.fillMaxWidth(), primary = false)
-        Spacer(Modifier.height(10.dp))
-        PillButton("Cancel", onClick = onCancel, modifier = Modifier.fillMaxWidth(), primary = false)
+        Spacer(Modifier.height(12.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .glass(RoundedCornerShape(14.dp))
+                .clickable { alsoFile = !alsoFile }
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            DownlyCheckbox(alsoFile)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Also delete the file from phone", color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("This can't be undone", color = c.textSecondary, fontSize = 11.sp)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Cancel", onClick = onCancel, outlineRed = true, modifier = Modifier.weight(1f))
+            PillButton(
+                "Delete",
+                onClick = { if (alsoFile) onDeleteFile() else onListOnly() },
+                danger = true,
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 

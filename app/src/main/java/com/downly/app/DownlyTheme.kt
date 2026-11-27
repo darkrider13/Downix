@@ -633,6 +633,53 @@ internal fun GlassField(
     }
 }
 
+
+/** Checkbox from the design: 22 dp, radius 7. Unchecked = 2 dp gray border, checked = white box with a black tick. */
+@Composable
+internal fun DownlyCheckbox(checked: Boolean, modifier: Modifier = Modifier) {
+    val c = Downly.colors
+    val shape = RoundedCornerShape(7.dp)
+    Box(
+        modifier
+            .size(22.dp)
+            .clip(shape)
+            .background(if (checked) Color.White else Color.Transparent, shape)
+            .border(
+                width = if (checked) 1.dp else 2.dp,
+                color = if (checked) c.whiteBorder else c.paused,
+                shape = shape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (checked) {
+            Icon(DownlyIcons.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(15.dp))
+        }
+    }
+}
+
+/** Pill toast from the design: glass, height 48, 28 white circle with a black tick + 13sp text. */
+@Composable
+internal fun DownlyToast(text: String, modifier: Modifier = Modifier) {
+    val c = Downly.colors
+    Row(
+        modifier
+            .fillMaxWidth()
+            .glass(RoundedCornerShape(24.dp), strong = true)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(28.dp).clip(CircleShape).background(Color.White),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(DownlyIcons.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(text, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 3)
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Icons: thin 1.8 stroke, same paths as the design pack (24x24)      */
 /* ------------------------------------------------------------------ */
