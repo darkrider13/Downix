@@ -891,6 +891,13 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
             )
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
             addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            // Keyboard: Android must NOT pan or resize this window by itself. Only imePadding() moves the
+            // pop-up, following the keyboard frame by frame, so it goes up and down in one motion.
+            @Suppress("DEPRECATION")
+            setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                attributes = attributes.also { it.fitInsetsTypes = 0 }
+            }
             statusBarColor = android.graphics.Color.TRANSPARENT
             navigationBarColor = android.graphics.Color.TRANSPARENT
             if (android.os.Build.VERSION.SDK_INT >= 29) {
@@ -1073,44 +1080,6 @@ internal fun GlassBottomSheet(
 }
 
 /**
- * Like imePadding(), but the pop-up glides up ONCE when the keyboard opens and down ONCE when it closes.
- * Keyboards often report their height in two steps (for example the key rows first, the suggestion / toolbar
- * row a moment later), and a Dialog window may get the height in one jump. Following every value made the
- * pop-up move in two steps. Here the height is taken only after it has stopped changing for 80 ms, a later
- * small change (less than 120 dp) while the keyboard stays open is ignored, and the move itself is one
- * eased 260 ms glide. The value is read only while laying out, so nothing is recomposed during the glide.
- */
-internal fun Modifier.smoothImePadding(): Modifier = composed {
-    val density = LocalDensity.current
-    val imeBottom = WindowInsets.ime.getBottom(density)
-    val navBottom = WindowInsets.navigationBars.getBottom(density)
-    val raw = (imeBottom - navBottom).coerceAtLeast(0)
-    val ignoreBelowPx = with(density) { 120.dp.toPx() }
-    var target by remember { mutableIntStateOf(0) }
-    // restarts on every new height, so only a value that stays for 80 ms is used
-    LaunchedEffect(raw) {
-        delay(80)
-        if (raw == 0) {
-            target = 0
-        } else if (target == 0 || kotlin.math.abs(raw - target) > ignoreBelowPx) {
-            target = raw
-        }
-    }
-    val lift = animateFloatAsState(
-        targetValue = target.toFloat(),
-        animationSpec = tween(260, easing = FastOutSlowInEasing),
-        label = "imeLift"
-    )
-    this.layout { measurable, constraints ->
-        val bottom = lift.value.toInt().coerceAtLeast(0)
-        val maxH = if (constraints.hasBoundedHeight) (constraints.maxHeight - bottom).coerceAtLeast(0) else constraints.maxHeight
-        val minH = (constraints.minHeight - bottom).coerceIn(0, maxH)
-        val placeable = measurable.measure(constraints.copy(minHeight = minH, maxHeight = maxH))
-        layout(placeable.width, placeable.height + bottom) { placeable.placeRelative(0, 0) }
-    }
-}
-
-/**
  * Centered pop-up (used by "Add link" and "From clipboard"): glass card in the middle of the screen,
  * dark scrim behind it, fades in and scales up in 200 ms. Tap outside or Back closes it.
  * Moves above the keyboard when it opens.
@@ -1146,7 +1115,7 @@ internal fun GlassCenterDialog(
                 )
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .smoothImePadding(),
+                .imePadding(),
             contentAlignment = Alignment.Center
         ) {
             Column(
