@@ -999,10 +999,9 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
             )
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
             addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
-            // Keyboard: Android must NOT pan or resize this window by itself. Only imePadding() moves the
-            // pop-up, following the keyboard frame by frame, so it goes up and down in one motion.
+            // Keyboard: the pop-up window must NOT resize or pan, so the card stays exactly where it opened.
             @Suppress("DEPRECATION")
-            setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
             if (android.os.Build.VERSION.SDK_INT >= 30) {
                 attributes = attributes.also { it.fitInsetsTypes = 0 }
             }
@@ -1039,8 +1038,8 @@ internal fun GlassBottomSheet(
 
 /**
  * Centered pop-up (used by "Add link" and "From clipboard"): glass card in the middle of the screen,
- * dark scrim behind it, fades in and scales up in 200 ms. Tap outside or Back closes it.
- * Moves above the keyboard when it opens.
+ * dark scrim behind it, fades in (no scale, no movement). Tap outside or Back closes it.
+ * The card stays fixed: the keyboard never moves it.
  */
 @Composable
 internal fun GlassCenterDialog(
@@ -1069,23 +1068,7 @@ internal fun GlassCenterDialog(
             progress.animateTo(1f, tween(150, easing = FastOutSlowInEasing))
         }
 
-        // Keyboard: the card is NOT re-laid-out on every keyboard frame (that was the jerky motion).
-        // We only read the keyboard height, smooth it, and move the card with a GPU translation.
-        val density = LocalDensity.current
-        val imeShift = remember { Animatable(0f) }
-        val imeInsets = WindowInsets.ime
-        val navInsets = WindowInsets.navigationBars
-        LaunchedEffect(Unit) {
-            snapshotFlow {
-                val ime = imeInsets.getBottom(density)
-                val nav = navInsets.getBottom(density)
-                (ime - nav).coerceAtLeast(0) / 2f
-            }.collectLatest { target ->
-                imeShift.animateTo(target, tween(130, easing = LinearOutSlowInEasing))
-            }
-        }
-        val areaH = remember { floatArrayOf(0f) }
-
+        // The card never moves: no keyboard shift, no scale, only a fade. It stays fixed at the centre.
         Box(
             Modifier
                 .fillMaxSize()
@@ -1098,22 +1081,12 @@ internal fun GlassCenterDialog(
                     onClick = onDismiss
                 )
                 .statusBarsPadding()
-                .navigationBarsPadding()
-                .onSizeChanged { areaH[0] = it.height.toFloat() },
+                .navigationBarsPadding(),
             contentAlignment = Alignment.Center
         ) {
             Column(
                 Modifier
-                    .graphicsLayer {
-                        val p = progress.value
-                        alpha = p
-                        val sc = 0.96f + 0.04f * p
-                        scaleX = sc
-                        scaleY = sc
-                        // never push the card above the top edge of the screen
-                        val room = ((areaH[0] - size.height) / 2f).coerceAtLeast(0f)
-                        translationY = -imeShift.value.coerceAtMost(room)
-                    }
+                    .graphicsLayer { alpha = progress.value }
                     .padding(horizontal = 20.dp, vertical = 12.dp)
                     .widthIn(max = 420.dp)
                     .fillMaxWidth()
