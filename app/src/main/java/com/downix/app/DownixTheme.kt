@@ -843,16 +843,10 @@ internal object PopupLayers {
  * is read only while drawing, so nothing recomposes.
  */
 internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 10.dp): Modifier = composed {
-    val strength = animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = if (PopupLayers.instant > 0) snap() else tween(if (active) 240 else 70),
-        label = "popupBlur"
-    )
     val maxPx = with(LocalDensity.current) { maxRadius.toPx() }
     this.graphicsLayer {
         if (android.os.Build.VERSION.SDK_INT >= 31) {
-            val r = strength.value * maxPx
-            renderEffect = if (r > 0.5f) BlurEffect(r, r, TileMode.Clamp) else null
+            renderEffect = if (active) BlurEffect(maxPx, maxPx, TileMode.Clamp) else null
         }
     }
 }
