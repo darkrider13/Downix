@@ -334,7 +334,7 @@ internal fun ConfirmDeleteFileDialog(fileName: String, onKeep: () -> Unit, onDel
         )
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PillButton("Cancel", onClick = onKeep, outlineRed = true, modifier = Modifier.weight(1f))
+            PillButton("Cancel", onClick = onKeep, modifier = Modifier.weight(1f))
             PillButton("Delete", onClick = onDelete, danger = true, modifier = Modifier.weight(1f))
         }
     }
@@ -379,7 +379,7 @@ internal fun ConfirmRemoveDialog(
         }
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PillButton("Cancel", onClick = onCancel, outlineRed = true, modifier = Modifier.weight(1f))
+            PillButton("Cancel", onClick = onCancel, modifier = Modifier.weight(1f))
             PillButton(
                 "Delete",
                 onClick = { if (alsoFile) onDeleteFile() else onListOnly() },
@@ -431,7 +431,7 @@ internal fun ConfirmBulkDeleteDialog(
         }
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PillButton("Cancel", onClick = onCancel, outlineRed = true, modifier = Modifier.weight(1f))
+            PillButton("Cancel", onClick = onCancel, modifier = Modifier.weight(1f))
             PillButton(
                 "Delete",
                 onClick = { if (alsoFile) onDeleteFiles() else onListOnly() },

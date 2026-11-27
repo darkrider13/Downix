@@ -483,28 +483,23 @@ private fun MainScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(visible, key = { it.id }) { item ->
-                            SwipeToDeleteBox(
-                                enabled = !selecting,
-                                parked = confirmRemove?.id == item.id || confirmCancel?.id == item.id,
-                                onSwiped = { requestRemove(item) },
+                            DownloadCard(
+                                item = item,
+                                selected = item.id in selected,
+                                selectionMode = selecting,
+                                onPause = { vm.pause(item.id) },
+                                onResume = { vm.resume(item.id) },
+                                onRemove = { requestRemove(item) },
+                                onOpen = { openDownloaded(context, item.savedUri, showToast) },
+                                onDetails = { detailsId = item.id },
+                                onToggleSelect = {
+                                    selected = if (item.id in selected) selected - item.id else selected + item.id
+                                },
+                                onLongPress = { if (item.id !in selected) selected = selected + item.id },
                                 modifier = Modifier.animateItemPlacement(
                                     spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
                                 )
-                            ) {
-                                DownloadCard(
-                                    item = item,
-                                    selected = item.id in selected,
-                                    selectionMode = selecting,
-                                    onPause = { vm.pause(item.id) },
-                                    onResume = { vm.resume(item.id) },
-                                    onRemove = { requestRemove(item) },
-                                    onOpen = { openDownloaded(context, item.savedUri, showToast) },
-                                    onDetails = { detailsId = item.id },
-                                    onToggleSelect = {
-                                        selected = if (item.id in selected) selected - item.id else selected + item.id
-                                    },
-                                    onLongPress = { if (item.id !in selected) selected = selected + item.id }
-                                )
+                            )
                             }
                         }
                     }
@@ -1038,9 +1033,7 @@ private fun DownloadCard(
             when {
                 item.isCompleted -> {
                     AnimatedIconButton(DownixIcons.OpenFile, "Open file", c.text, onOpen, enabled = !selectionMode)
-                    PlainIconButton(DownixIcons.Trash, "Remove from list", c.red, onRemove, enabled = !selectionMode)
                 }
-                // No red cross any more: swipe the card to the left to delete / cancel it.
                 item.canPause -> {
                     AnimatedIconButton(DownixIcons.Pause, "Pause", c.text, onPause, enabled = !selectionMode)
                 }
@@ -1054,6 +1047,8 @@ private fun DownloadCard(
                     )
                 }
             }
+            // Red dustbin on every card (active, paused, failed, completed). No swipe-to-delete any more.
+            PlainIconButton(DownixIcons.Trash, "Delete", c.red, onRemove, enabled = !selectionMode)
         }
 
         if (item.state == DownloadState.FAILED && !item.error.isNullOrBlank()) {
