@@ -104,7 +104,7 @@ object DownloadNotifier {
         }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_PROGRESS)
-            .setSmallIcon(R.drawable.ic_stat_download)
+            .setSmallIcon(R.drawable.ic_notification)
             .setColor(ACCENT)
             .setContentTitle(title)
             .setContentText(text)
@@ -146,7 +146,7 @@ object DownloadNotifier {
         createChannels(context)
         val name = fileName.ifBlank { "Your file" }
         val notification = NotificationCompat.Builder(context, CHANNEL_DONE)
-            .setSmallIcon(R.drawable.ic_stat_download)
+            .setSmallIcon(R.drawable.ic_notification)
             .setColor(ACCENT)
             .setContentTitle("Download complete")
             .setContentText(name)
@@ -165,7 +165,7 @@ object DownloadNotifier {
         val name = fileName.ifBlank { "Download" }
         val reason = error?.takeIf { it.isNotBlank() } ?: "Download failed"
         val notification = NotificationCompat.Builder(context, CHANNEL_DONE)
-            .setSmallIcon(R.drawable.ic_stat_download)
+            .setSmallIcon(R.drawable.ic_notification)
             .setColor(ACCENT)
             .setContentTitle("Download failed")
             .setContentText("$name: $reason")
