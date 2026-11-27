@@ -1110,10 +1110,12 @@ internal fun GlassCenterDialog(
         // We only read the keyboard height, smooth it, and move the card with a GPU translation.
         val density = LocalDensity.current
         val imeShift = remember { Animatable(0f) }
+        val imeInsets = WindowInsets.ime
+        val navInsets = WindowInsets.navigationBars
         LaunchedEffect(Unit) {
             snapshotFlow {
-                val ime = WindowInsets.ime.getBottom(density)
-                val nav = WindowInsets.navigationBars.getBottom(density)
+                val ime = imeInsets.getBottom(density)
+                val nav = navInsets.getBottom(density)
                 (ime - nav).coerceAtLeast(0) / 2f
             }.collectLatest { target ->
                 imeShift.animateTo(target, tween(130, easing = LinearOutSlowInEasing))
