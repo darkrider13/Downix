@@ -543,7 +543,7 @@ private fun MainScreen(
                         val cardHeight = with(density) { cardPx.toDp() }
                         LazyColumn(
                             state = listState,
-                            modifier = Modifier.fillMaxSize().listEdgeFade(listState),
+                            modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 100.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
@@ -1026,8 +1026,7 @@ private fun DownloadCard(
             .fillMaxWidth()
             .height(cardHeight)
             .pressable(
-                pressedScale = 0.985f,
-                bounce = 1f, // no springy wobble on a card: a finger that starts a scroll must not shake it
+                pressedScale = 1f, // no press animation on a card at all: nothing may move when a finger starts a scroll
                 onLongClick = { onLongPress(item.id) },
                 onClick = { if (selectionMode) onToggleSelect(item.id) else onDetails(item.id) }
             )
