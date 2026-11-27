@@ -24,11 +24,11 @@ Hand this file + the latest project zip + Downly_Design_AI.zip to any Claude. Re
 |---|------|--------|
 | 1 | Theme foundation (Day / AMOLED Dark tokens, background glows, icons, shared buttons, theme setting) + Home screen (header, chips, cards, progress, white + button) | DONE |
 | 2 | Plus button animated menu (From clipboard / Add link, overlay, rotate to x) + "Add link" bottom sheet | DONE |
-| 3 | Delete bottom sheet ("Delete download?" + checkbox + Cancel / Delete) + toast pill ("File deleted from phone" / "Removed from list") + cancel-download and details dialogs restyled | PENDING |
+| 3 | Delete bottom sheet ("Delete download?" + checkbox + Cancel / Delete) + toast pill ("File deleted from phone" / "Removed from list") + cancel-download and details dialogs restyled | DONE |
 | 4 | Settings as a full screen (glass top bar with back arrow, white section pills, glass groups, segmented theme switch, custom 38x22 toggles, white Done button) | PENDING |
 | 5 | Final polish: update banner / update popup / offline banner / search field / empty states, last check of every screen against the PNGs, README + PROGRESS.md notes | PENDING |
 
-Progress: 2 of 5 steps done | 3 remaining | 40% done, 60% remaining.
+Progress: 3 of 5 steps done | 2 remaining | 60% done, 40% remaining.
 
 ## Step 1 notes (done)
 New file `DownlyTheme.kt` (package com.downly.app) holds everything shared:
@@ -79,14 +79,28 @@ MainActivity.kt:
   All logic (connect / probe / submit / duplicate check) is unchanged.
 - Not pixel-checked: no screenshot exists for the Add link sheet, it follows the text in PROMPT.md.
 
-## Next: Step 3 (Delete sheet + toast + cancel / details dialogs) - what to do
-- Delete sheet: use `GlassBottomSheet(title = "Delete download?")`. Subtitle "<file> will be removed from the list." (13sp, textSecondary). Glass row (radius 14) with checkbox 22 / radius 7:
-  unchecked = 2px gray border; checked = white box with black tick (DownlyIcons.Check). Text "Also delete the file from phone" 13sp + "This can't be undone" 11sp. Unchecked by default.
-  Buttons side by side: Cancel (outlineRed) + Delete (danger = red filled). Replaces the old `confirmRemove` dialog + `ConfirmDeleteFileDialog` flow for completed items
-  (keep the same ViewModel calls: vm.remove / vm.deleteWithFile). Day: sheet fill is `c.sheetFill`, checkbox row is a lighter glass row.
-- Toast: glass pill from the bottom, left 16, right 84 (leaves room for the + button), height 48, 28 white circle with black tick + 13sp text
-  "File deleted from phone" (checkbox ticked) or "Removed from list". Rises from the bottom, hides after 2.6 s.
-- Restyle `ConfirmCancelDialog` ("Cancel this download?") and `DetailsDialog` (DownloadTools.kt) with the same sheet look and button rules.
+## Step 3 notes (done)
+DownlyTheme.kt: `DownlyCheckbox(checked)` (22 dp, radius 7; unchecked 2 dp gray border, checked white box + black tick), `DownlyToast(text)` (glass strong pill, min height 48, 28 white circle + tick, 13sp).
+DownloadTools.kt:
+- `ConfirmRemoveDialog(item, onCancel, onListOnly, onDeleteFile)` is now the "Delete download?" bottom sheet (name kept so MainActivity calls are unchanged):
+  subtitle, glass row (radius 14) with checkbox "Also delete the file from phone" / "This can't be undone" (unchecked by default), Cancel (red outline) + Delete (red filled).
+  Delete with checkbox off -> `onListOnly` (vm.remove), on -> `onDeleteFile` (vm.deleteWithFile). Same ViewModel calls as before.
+- `ConfirmDeleteFileDialog` (from the details popup) and `DetailsDialog` are bottom sheets now (title "Delete file from phone?" / "Details"), text 13 / 11sp, Close = full-width white pill.
+MainActivity.kt: `ConfirmCancelDialog` = sheet "Cancel this download?" with Keep (white) + Cancel download (red filled).
+Toast: state `toastText` + `showToast()` in MainScreen, pill at bottom (left 16, right 84, bottom 22), slides up, hides after 2.6 s. Messages: "File deleted from phone"
+(ViewModel text changed from "File deleted"), "Removed from list" (list-only delete), plus the existing "already gone" / "could not delete" texts. The old Android Toast is no longer used for deletes.
+Not done on purpose: the "Cancel download" X on running cards still opens the cancel sheet (no toast).
+
+## Next: Step 4 (Settings as a full screen) - what to do
+- Replace `SettingsDialog` (MainActivity.kt, centred popup) by a full screen (show it instead of the main list while `showSettings` is true, Back closes it):
+  glass top bar (back arrow DownlyIcons.Back + "Settings" 16sp bold, radius 18, margin 12), then sections with small WHITE pill labels (black 10sp bold uppercase, letter spacing),
+  each section one glass group (radius 16, margin 12), rows min height 52, title 13sp, subtitle 11sp, thin dividers (`c.divider`).
+- General: Theme (`ThemeSegmented`: glass container, selected white pill; subtitle "Day or AMOLED dark"), Download folder (subtitle = current folder, white "Change" small pill),
+  Simultaneous downloads (white round - and + 32 dp, number between; subtitle "Files at the same time").
+- Network and alerts: Wi-Fi only ("Never use mobile data"), Notifications ("When finished or failed") with the custom 38x22 toggle: ON = white track + black knob, OFF = gray track + gray knob (`toggleOffTrack`, `paused`).
+- Updates: Check automatically ("Look for a new version", toggle), Check now (subtitle "Downly <version>", white "Check" pill). Keep the existing update row logic (UpdateSettingsRow in UpdateUi.kt).
+- Backup: Export settings ("Save to a file"), Import settings ("Restore from a file"), white "Export" / "Import" pills. Keep all existing logic (file pickers, SettingsBackup).
+- Bottom: full-width WHITE "Done" button (closes settings). Keep every existing setting and callback of SettingsDialog.
 
 ## Things to remember
 - Code never compiled here. First real build happens on GitHub (release.yml). If the user reports compile errors, fix those first.
