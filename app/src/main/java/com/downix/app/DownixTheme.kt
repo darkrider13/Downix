@@ -3,6 +3,7 @@ package com.downix.app
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.ime
 import androidx.compose.ui.layout.layout
@@ -27,6 +28,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -1100,8 +1103,24 @@ internal fun GlassCenterDialog(
         val covered = rememberPopupCovered()
         LaunchedEffect(Unit) {
             withFrameNanos { }
-            progress.animateTo(1f, tween(190, easing = FastOutSlowInEasing))
+            progress.animateTo(1f, tween(150, easing = FastOutSlowInEasing))
         }
+
+        // Keyboard: the card is NOT re-laid-out on every keyboard frame (that was the jerky motion).
+        // We only read the keyboard height, smooth it, and move the card with a GPU translation.
+        val density = LocalDensity.current
+        val imeShift = remember { Animatable(0f) }
+        LaunchedEffect(Unit) {
+            snapshotFlow {
+                val ime = WindowInsets.ime.getBottom(density)
+                val nav = WindowInsets.navigationBars.getBottom(density)
+                (ime - nav).coerceAtLeast(0) / 2f
+            }.collectLatest { target ->
+                imeShift.animateTo(target, tween(130, easing = LinearOutSlowInEasing))
+            }
+        }
+        val areaH = remember { floatArrayOf(0f) }
+
         Box(
             Modifier
                 .fillMaxSize()
@@ -1115,7 +1134,7 @@ internal fun GlassCenterDialog(
                 )
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .imePadding(),
+                .onSizeChanged { areaH[0] = it.height.toFloat() },
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -1123,9 +1142,12 @@ internal fun GlassCenterDialog(
                     .graphicsLayer {
                         val p = progress.value
                         alpha = p
-                        val sc = 0.94f + 0.06f * p
+                        val sc = 0.96f + 0.04f * p
                         scaleX = sc
                         scaleY = sc
+                        // never push the card above the top edge of the screen
+                        val room = ((areaH[0] - size.height) / 2f).coerceAtLeast(0f)
+                        translationY = -imeShift.value.coerceAtMost(room)
                     }
                     .padding(horizontal = 20.dp, vertical = 12.dp)
                     .widthIn(max = 420.dp)
