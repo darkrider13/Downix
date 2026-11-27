@@ -174,15 +174,6 @@ Every build must be signed with the **same key**, otherwise Android refuses to u
 
 ## Developer
 
-**MD. Insanul Islam Abir**
-
-[![Instagram](https://img.shields.io/badge/Instagram-000000?style=for-the-badge&logo=instagram&logoColor=white)](https://www.instagram.com/md.insanulislam)
-[![Telegram](https://img.shields.io/badge/Telegram-000000?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/insanul13)
-
----
-
-<div align="center">
-
-© MD. Insanul Islam Abir. All rights reserved.
+darkrider13 💜
 
 </div>
