@@ -28,6 +28,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -141,6 +142,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -598,11 +601,10 @@ private fun MainScreen(
         }
 
         // The + button hides while the list is scrolled and comes back only at the very top of the list.
-        val atTop by remember {
-            derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
-        }
+        // It is passed as a lambda and read only inside PlusMenu, so the big screen is NOT recomposed
+        // when the button hides or shows (that recomposition was what made scrolling stutter).
         PlusMenu(
-            fabVisible = atTop || menuOpen,
+            atTop = { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 },
             expanded = menuOpen,
             onToggle = { menuOpen = !menuOpen },
             onClose = { menuOpen = false },
@@ -945,7 +947,7 @@ private fun EmptyState(modifier: Modifier = Modifier) {
  */
 @Composable
 private fun BoxScope.PlusMenu(
-    fabVisible: Boolean,
+    atTop: () -> Boolean,
     expanded: Boolean,
     onToggle: () -> Unit,
     onClose: () -> Unit,
@@ -992,7 +994,27 @@ private fun BoxScope.PlusMenu(
         PlusMenuOption("Add link", DownixIcons.Link, expanded, { open.value }, onClick = onAddLink)
     }
 
-    val fabShow by animateFloatAsState(if (fabVisible) 1f else 0f, tween(160, easing = FastOutSlowInEasing), label = "fabShow")
+    // Hide / show of the + button. The scroll position is watched in a coroutine (not in composition), so while
+    // scrolling nothing recomposes; only the draw layer below changes. Hidden while the list is scrolled,
+    // back only at the very top, and always visible while the menu is open.
+    val fabShow = remember { Animatable(1f) }
+    var fabVisible by remember { mutableStateOf(true) }
+    val atTopNow by rememberUpdatedState(atTop)
+    val expandedNow by rememberUpdatedState(expanded)
+    LaunchedEffect(Unit) {
+        snapshotFlow { atTopNow() || expandedNow }
+            .distinctUntilChanged()
+            .collectLatest { show ->
+                if (show) {
+                    fabVisible = true // touchable again as soon as it starts coming back
+                    fabShow.animateTo(1f, tween(240, easing = LinearOutSlowInEasing))
+                } else {
+                    fabVisible = false // stops taking touches at once, so the list below gets them
+                    fabShow.animateTo(0f, tween(180, easing = FastOutSlowInEasing))
+                }
+            }
+    }
+    val fabLift = with(LocalDensity.current) { 14.dp.toPx() }
     Box(
         Modifier
             .align(Alignment.BottomEnd)
@@ -1000,9 +1022,11 @@ private fun BoxScope.PlusMenu(
             .padding(end = 16.dp, bottom = 18.dp)
             .size(56.dp)
             .graphicsLayer {
-                alpha = fabShow
-                scaleX = 0.8f + 0.2f * fabShow
-                scaleY = 0.8f + 0.2f * fabShow
+                val v = fabShow.value
+                alpha = v
+                scaleX = 0.8f + 0.2f * v
+                scaleY = 0.8f + 0.2f * v
+                translationY = fabLift * (1f - v) // soft slide: sinks a little when hiding, rises when returning
             }
             .then(if (fabVisible) Modifier.pressable(pressedScale = 0.9f, onClick = onToggle) else Modifier)
             .whiteButton(CircleShape),
