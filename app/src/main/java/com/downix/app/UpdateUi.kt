@@ -21,7 +21,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,7 +87,7 @@ internal fun UpdateDialog(
         state is UpdateState.Error -> "Update problem"
         else -> "Update available"
     }
-    GlassBottomSheet(onDismiss = onClose, title = title) {
+    GlassBottomSheet(onDismiss = onClose, title = title, instant = true) {
         if (info == null) {
             Text("You have version ${BuildConfig.VERSION_NAME}.", color = c.textSecondary, fontSize = 13.sp)
             Spacer(Modifier.height(16.dp))
@@ -161,17 +160,12 @@ internal fun UpdateDialog(
     }
 }
 
-/**
- * Small "update available" dot: a soft green dot with a thin, faint ring around it and a clear gap between
- * them. Used on the settings icon (home header) and on the Update button (Settings screen).
- */
+/** Small "update available" dot: just a plain green dot (no ring), kept clear of the icon it sits on. */
 @Composable
 internal fun UpdateDot(modifier: Modifier = Modifier) {
-    val c = Downix.colors
-    // small dot, thin ring right around it (tiny gap)
-    Canvas(modifier.size(9.dp)) {
-        drawCircle(c.green.copy(alpha = 0.9f), radius = 2.dp.toPx())
-        drawCircle(c.green.copy(alpha = 0.4f), radius = 3.7.dp.toPx(), style = Stroke(width = 0.8.dp.toPx()))
+    val color = Downix.colors.green
+    Canvas(modifier.size(6.dp)) {
+        drawCircle(color)
     }
 }
 

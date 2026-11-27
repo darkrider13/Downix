@@ -367,6 +367,19 @@ private fun MainScreen(
             toastText = null
         }
     }
+    // After a manual "Check" finds a new version: show an instant toast (no popup, no animation).
+    var wasChecking by remember { mutableStateOf(false) }
+    LaunchedEffect(updateState) {
+        val s = updateState
+        if (s is UpdateState.Checking) {
+            wasChecking = true
+        } else {
+            if (wasChecking && s is UpdateState.Available) {
+                showToast("Update available: Downix ${s.info.versionName}")
+            }
+            wasChecking = false
+        }
+    }
     val clipboardManager = LocalClipboardManager.current
     var addInitial by remember { mutableStateOf("") }
     var confirmCancel by remember { mutableStateOf<DownloadItem?>(null) }
@@ -791,8 +804,8 @@ private fun NormalHeader(
                 onClick = onSettings
             )
             if (updatePending) {
-                // small green dot sitting right on the gear's top-right corner
-                UpdateDot(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp))
+                // small green dot above the gear's top-right corner, with a clear gap
+                UpdateDot(Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 4.dp))
             }
         }
     }
