@@ -156,6 +156,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -346,11 +347,8 @@ private fun MainScreen(
     // List tools: filter chips, search, details popup
     var filter by rememberSaveable { mutableStateOf(DownloadFilter.ALL) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
-    // Search box opens / closes at once (no height animation, no card resizing). The list below it moves by the
-    // box height in one step, so a GPU slide (translation, no re-layout) hides that step: no jolt.
-    val searchScope = rememberCoroutineScope()
-    val searchJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
-    var searchShift by remember { mutableStateOf(0f) }
+    // Search box opens / closes at once, with NO animation. The text field is created ahead of time (hidden, zero
+    // height), so opening only changes one number: nothing heavy is built in the frame that shows it.
     val searchBoxPx = with(LocalDensity.current) { 54.dp.toPx() } // 44dp field + 10dp bottom padding
     var query by rememberSaveable { mutableStateOf("") }
     var detailsId by remember { mutableStateOf<Long?>(null) }
@@ -474,19 +472,7 @@ private fun MainScreen(
                 searchOpen = searchOpen,
                 onSearch = {
                     if (searchOpen) query = ""
-                    val opening = !searchOpen
-                    searchOpen = opening
-                    if (downloads.isNotEmpty()) {
-                        searchShift = if (opening) -searchBoxPx else searchBoxPx
-                        searchJob[0]?.cancel()
-                        searchJob[0] = searchScope.launch {
-                            animate(
-                                initialValue = searchShift,
-                                targetValue = 0f,
-                                animationSpec = tween(170, easing = FastOutSlowInEasing)
-                            ) { value, _ -> searchShift = value }
-                        }
-                    }
+                    searchOpen = !searchOpen
                 },
                 onPauseAll = vm::pauseAll,
                 onClearFinished = { confirmClear = true },
@@ -516,17 +502,23 @@ private fun MainScreen(
                 )
             }
             // No open / close animation: the search box appears and disappears at once.
-            if (searchOpen && downloads.isNotEmpty()) {
+            if (downloads.isNotEmpty()) {
                 SearchField(
                     query = query,
                     onQueryChange = { query = it },
                     modifier = Modifier
-                        .zIndex(1f)
-                        .graphicsLayer { alpha = 1f - (kotlin.math.abs(searchShift) / searchBoxPx).coerceIn(0f, 1f) }
+                        // closed: zero height and not placed (not drawn, not touchable); open: normal size
+                        .layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            val open = searchOpen
+                            layout(placeable.width, if (open) placeable.height else 0) {
+                                if (open) placeable.place(0, 0)
+                            }
+                        }
                         .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
                 )
             }
-            Box(Modifier.weight(1f).fillMaxWidth().graphicsLayer { translationY = searchShift }) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (!listLoaded) {
                     // still reading the list: show nothing for a moment
                 } else if (downloads.isEmpty()) {
