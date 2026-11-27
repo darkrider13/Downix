@@ -4,6 +4,11 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.height
@@ -281,6 +286,10 @@ private fun DrawScope.glow(color: Color, cxFrac: Float, cyFrac: Float, rxDp: Flo
 @Composable
 fun DownlyBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     val c = Downly.colors
+    // Dark mode: the top and bottom of the screen fade to black (under the status bar and the navigation bar),
+    // so the system bars blend into the app and never look like separate strips.
+    val topFade = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 72.dp
+    val bottomFade = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 96.dp
     Box(
         modifier
             .fillMaxSize()
@@ -292,6 +301,29 @@ fun DownlyBackground(modifier: Modifier = Modifier, content: @Composable BoxScop
                     glow(Color(0xFF4682FF).copy(alpha = 0.10f), 0.20f, 0.58f, 360f, 320f)
                     glow(Color(0xFF28D2C8).copy(alpha = 0.10f), 1f, 0.80f, 360f, 340f)
                     glow(Color(0xFFFF6EA5).copy(alpha = 0.13f), 0.08f, 1f, 480f, 400f)
+                    val top = topFade.toPx()
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.92f),
+                            0.55f to Color.Black.copy(alpha = 0.45f),
+                            1f to Color.Transparent,
+                            startY = 0f,
+                            endY = top
+                        ),
+                        size = Size(size.width, top)
+                    )
+                    val bottom = bottomFade.toPx()
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            0.45f to Color.Black.copy(alpha = 0.5f),
+                            1f to Color.Black.copy(alpha = 0.94f),
+                            startY = size.height - bottom,
+                            endY = size.height
+                        ),
+                        topLeft = Offset(0f, size.height - bottom),
+                        size = Size(size.width, bottom)
+                    )
                 } else {
                     glow(Color(0xFF9FEDE2), 0.05f, 0f, 430f, 360f)
                     glow(Color(0xFFC8C0F8), 1f, 0.20f, 400f, 430f)
