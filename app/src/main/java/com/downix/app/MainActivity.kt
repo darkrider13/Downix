@@ -130,6 +130,9 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1295,6 +1298,8 @@ private fun AddLinkDialog(
     var checking by remember { mutableStateOf(false) }
     var probe by remember { mutableStateOf<LinkProbe?>(null) }
     val canDownload = probe?.status == ProbeStatus.OK || probe?.status == ProbeStatus.WARN
+    // Filled from inside the popup window (see below): hides the keyboard of THAT window.
+    val hideKeyboard = remember { arrayOf<() -> Unit>({}) }
 
     LaunchedEffect(Unit) {
         delay(300) // after the popup has finished opening, so the keyboard does not make it jump
@@ -1307,6 +1312,7 @@ private fun AddLinkDialog(
             showError = true
             return
         }
+        hideKeyboard[0]() // keyboard goes down as soon as Connect is tapped
         probe = null
         checking = true
         scope.launch {
@@ -1341,6 +1347,16 @@ private fun AddLinkDialog(
 
     GlassCenterDialog(onDismiss = onDismiss, title = "Add link") {
         val c = Downix.colors
+        val dialogView = LocalView.current
+        val dialogFocus = LocalFocusManager.current
+        SideEffect {
+            hideKeyboard[0] = {
+                dialogFocus.clearFocus(force = true)
+                (dialogView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                    as android.view.inputmethod.InputMethodManager)
+                    .hideSoftInputFromWindow(dialogView.windowToken, 0)
+            }
+        }
         GlassField(
             value = text,
             onValueChange = {

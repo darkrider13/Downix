@@ -842,7 +842,7 @@ internal object PopupLayers {
  * the blur reaches the status bar and the navigation bar area too. [active] fades the blur in and out; the value
  * is read only while drawing, so nothing recomposes.
  */
-internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 10.dp): Modifier = composed {
+internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 4.dp): Modifier = composed {
     val maxPx = with(LocalDensity.current) { maxRadius.toPx() }
     this.graphicsLayer {
         if (android.os.Build.VERSION.SDK_INT >= 31) {
