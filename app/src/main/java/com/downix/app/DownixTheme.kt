@@ -1024,7 +1024,14 @@ internal fun GlassCenterDialog(
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.Start
             ) {
-                Text(title, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    title,
+                    color = c.text,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 Spacer(Modifier.height(12.dp))
                 content()
             }
@@ -1220,6 +1227,14 @@ internal object DownixIcons {
         icon(
             "Link",
             "M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1"
+        )
+    }
+    /** Two overlapping rounded squares ("copy"). */
+    val Copy by lazy {
+        icon(
+            "Copy",
+            "M4 10a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z",
+            "M8 8V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2"
         )
     }
     val Clipboard by lazy { icon("Clipboard", "M9 4h6v3H9zM9 5H6v16h12V5h-3M9 14l2 2 4-4") }

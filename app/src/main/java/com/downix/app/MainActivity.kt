@@ -1635,7 +1635,7 @@ private fun SettingsScreen(
                         onClick = onClose
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("Settings", color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("Settings", color = c.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
                 }
 
@@ -1667,8 +1667,7 @@ private fun SettingsScreen(
                                     onClick = {
                                         runCatching { folderLauncher.launch(null) }
                                             .onFailure { showMessage("No folder picker found on this phone") }
-                                    },
-                                    small = true
+                                    }
                                 )
                             }
                             SettingDivider()
@@ -1721,9 +1720,9 @@ private fun SettingSection(title: String, first: Boolean = false) {
     Text(
         title,
         color = Downix.colors.text,
-        fontSize = 16.sp,
+        fontSize = 19.sp,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, top = if (first) 6.dp else 18.dp, bottom = 8.dp)
+        modifier = Modifier.padding(start = 24.dp, top = if (first) 10.dp else 28.dp, bottom = 12.dp)
     )
 }
 
@@ -1733,8 +1732,8 @@ private fun SettingGroup(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .glass(RoundedCornerShape(16.dp)),
+            .padding(horizontal = 16.dp)
+            .glass(RoundedCornerShape(22.dp)),
         content = content
     )
 }
@@ -1744,17 +1743,17 @@ internal fun SettingRow(title: String, subtitle: String, control: @Composable ()
     Row(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .heightIn(min = 76.dp)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, color = Downix.colors.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(title, color = Downix.colors.text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
             if (subtitle.isNotEmpty()) Text(
                 subtitle,
                 color = Downix.colors.textSecondary,
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -1777,7 +1776,7 @@ private fun Stepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
     val c = Downix.colors
     // The 36 dp tap boxes leave empty space around the icons: shift the row so the "+" ends at the
     // same right edge as the buttons and switches in the other rows.
-    Row(Modifier.offset(x = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.offset(x = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         StepButton(DownixIcons.Minus, "Fewer downloads", enabled = value > min) { onChange(value - 1) }
         AnimatedContent(
             targetState = value,
@@ -1787,13 +1786,13 @@ private fun Stepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
                     (slideOutVertically(tween(180)) { if (up) -it else it } + fadeOut(tween(120)))
             },
             contentAlignment = Alignment.Center,
-            modifier = Modifier.widthIn(min = 22.dp),
+            modifier = Modifier.widthIn(min = 26.dp),
             label = "stepperValue"
         ) { shown ->
             Text(
                 "$shown",
                 color = c.text,
-                fontSize = 14.sp,
+                fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
@@ -1820,7 +1819,7 @@ private fun StepButton(icon: ImageVector, description: String, enabled: Boolean,
     val alpha by animateFloatAsState(if (enabled) 1f else 0.3f, tween(200), label = "stepAlpha")
     Box(
         Modifier
-            .size(36.dp)
+            .size(44.dp)
             .graphicsLayer { this.alpha = alpha }
             .clickable(
                 interactionSource = source,
@@ -1839,7 +1838,7 @@ private fun StepButton(icon: ImageVector, description: String, enabled: Boolean,
             icon,
             contentDescription = description,
             tint = c.text,
-            modifier = Modifier.size(15.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+            modifier = Modifier.size(18.dp).graphicsLayer { scaleX = scale; scaleY = scale }
         )
     }
 }
@@ -1848,19 +1847,19 @@ private fun StepButton(icon: ImageVector, description: String, enabled: Boolean,
 @Composable
 internal fun GlassSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val c = Downix.colors
-    val knobX by animateDpAsState(if (checked) 19.dp else 3.dp, tween(160), label = "toggleKnob")
-    val track = RoundedCornerShape(11.dp)
+    val knobX by animateDpAsState(if (checked) 23.dp else 3.dp, tween(160), label = "toggleKnob")
+    val track = RoundedCornerShape(13.dp)
     Box(
         Modifier
             .offset(x = 1.dp) // 40 dp tap box, 38 dp switch: its right edge lines up with the other rows
-            .heightIn(min = 40.dp)
-            .widthIn(min = 40.dp)
+            .heightIn(min = 48.dp)
+            .widthIn(min = 48.dp)
             .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
         contentAlignment = Alignment.Center
     ) {
         Box(
             Modifier
-                .size(width = 38.dp, height = 22.dp)
+                .size(width = 46.dp, height = 26.dp)
                 .clip(track)
                 .background(if (checked) Color.White else c.toggleOffTrack, track)
                 .border(1.dp, if (checked) c.whiteBorder else c.toggleOffBorder, track),
@@ -1869,7 +1868,7 @@ internal fun GlassSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
             Box(
                 Modifier
                     .offset(x = knobX)
-                    .size(16.dp)
+                    .size(20.dp)
                     .clip(CircleShape)
                     .background(if (checked) Color.Black else c.paused, CircleShape)
             )

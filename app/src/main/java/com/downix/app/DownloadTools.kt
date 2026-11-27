@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.core.content.FileProvider
 import java.io.File
 import java.text.SimpleDateFormat
@@ -270,17 +272,52 @@ internal fun DetailsDialog(
     onDeleteFile: () -> Unit
 ) {
     GlassBottomSheet(onDismiss = onClose, title = "Details", instant = true) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val nameColor = Downix.colors.text
         Row(verticalAlignment = Alignment.CenterVertically) {
             FileTile(item.fileName)
             Spacer(Modifier.width(12.dp))
+            // The copy icon sits right after the last letter of the file name (inline), so it follows the text
+            // on whichever line the name ends. The full name is shown (no "..."), so the icon is never cut off.
+            val hasName = item.fileName.isNotBlank()
+            val nameWithCopy = androidx.compose.ui.text.buildAnnotatedString {
+                append(item.fileName.ifBlank { "Getting file info" })
+                if (hasName) {
+                    append("\u00A0")
+                    appendInlineContent("copyName", "[copy]")
+                }
+            }
+            val inline = mapOf(
+                "copyName" to androidx.compose.foundation.text.InlineTextContent(
+                    androidx.compose.ui.text.Placeholder(
+                        width = 30.sp,
+                        height = 24.sp,
+                        placeholderVerticalAlign = androidx.compose.ui.text.PlaceholderVerticalAlign.Center
+                    )
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
+                            .clickable { copyFileName(context, item.fileName) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            DownixIcons.Copy,
+                            contentDescription = "Copy file name",
+                            tint = nameColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            )
             Text(
-                item.fileName.ifBlank { "Getting file info" },
-                color = Downix.colors.text,
+                nameWithCopy,
+                inlineContent = inline,
+                color = nameColor,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 lineHeight = 18.sp,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -441,6 +478,15 @@ internal fun ConfirmBulkDeleteDialog(
 /* ------------------------------------------------------------------ */
 /*  Actions: copy link, share file                                     */
 /* ------------------------------------------------------------------ */
+
+internal fun copyFileName(context: Context, fileName: String) {
+    val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
+    clipboard.setPrimaryClip(ClipData.newPlainText("Downix file name", fileName))
+    // Android 13+ shows its own "copied" confirmation.
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+        Toast.makeText(context, "File name copied", Toast.LENGTH_SHORT).show()
+    }
+}
 
 internal fun copyLink(context: Context, url: String, onMessage: (String) -> Unit = {}) {
     val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return

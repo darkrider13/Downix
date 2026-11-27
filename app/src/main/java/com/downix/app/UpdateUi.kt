@@ -184,17 +184,17 @@ internal fun UpdateSettingsRow(
         when {
             !configured || state is UpdateState.Checking -> Unit
             state is UpdateState.Available -> Box {
-                PillButton("Update", onClick = onOpen, modifier = Modifier.widthIn(min = 84.dp), small = true)
+                PillButton("Update", onClick = onOpen, modifier = Modifier.widthIn(min = 84.dp))
                 // small green dot INSIDE the pill, on the right side (the pill is widened so it never touches the text)
                 val dotColor = Downix.colors.green
                 Canvas(Modifier.align(Alignment.CenterEnd).padding(end = 11.dp).size(7.dp)) {
                     drawCircle(dotColor)
                 }
             }
-            state is UpdateState.Downloading -> PillButton("View", onClick = onOpen, small = true)
-            state is UpdateState.ReadyToInstall -> PillButton("Install", onClick = onInstall, small = true)
-            state is UpdateState.Error && state.info != null -> PillButton("Details", onClick = onOpen, small = true)
-            else -> PillButton("Check", onClick = onCheck, small = true)
+            state is UpdateState.Downloading -> PillButton("View", onClick = onOpen)
+            state is UpdateState.ReadyToInstall -> PillButton("Install", onClick = onInstall)
+            state is UpdateState.Error && state.info != null -> PillButton("Details", onClick = onOpen)
+            else -> PillButton("Check", onClick = onCheck)
         }
     }
 }
