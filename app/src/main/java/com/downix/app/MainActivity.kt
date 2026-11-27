@@ -78,6 +78,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -678,7 +679,7 @@ private fun Header(
     // keeps the last count while the selection bar fades out, so it never shows "0 selected"
     val lastCount = remember { intArrayOf(0) }
     if (selectedCount > 0) lastCount[0] = selectedCount
-    Crossfade(targetState = selectedCount > 0, animationSpec = tween(160), label = "headerMode") { selecting ->
+    Crossfade(targetState = selectedCount > 0, animationSpec = tween(200, easing = FastOutSlowInEasing), label = "headerMode") { selecting ->
         if (selecting) {
             SelectionHeader(
                 count = if (selectedCount > 0) selectedCount else lastCount[0],
@@ -802,9 +803,7 @@ private fun NormalHeader(
 private fun EmptyState(modifier: Modifier = Modifier) {
     val c = Downix.colors
     Column(modifier.padding(horizontal = 44.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(72.dp).glass(CircleShape), contentAlignment = Alignment.Center) {
-            Icon(Icons.Rounded.CloudDownload, null, tint = c.text, modifier = Modifier.size(32.dp))
-        }
+        Icon(Icons.Rounded.CloudDownload, null, tint = c.text, modifier = Modifier.size(48.dp))
         Spacer(Modifier.height(16.dp))
         Text("No downloads yet", color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(4.dp))
@@ -956,6 +955,9 @@ private fun DownloadCard(
 ) {
     val c = Downix.colors
     val cardShape = RoundedCornerShape(16.dp)
+    // 0 -> 1 while selection mode turns on: the checkbox slot grows, the box fades and scales in, all together
+    val sel by animateFloatAsState(if (selectionMode) 1f else 0f, tween(240, easing = FastOutSlowInEasing), label = "selectMode")
+    val borderAlpha by animateFloatAsState(if (selected) 0.9f else 0f, tween(200, easing = FastOutSlowInEasing), label = "selectBorder")
     Column(
         modifier
             .fillMaxWidth()
@@ -965,21 +967,25 @@ private fun DownloadCard(
                 onClick = if (selectionMode) onToggleSelect else onDetails
             )
             .glass(cardShape)
-            .then(if (selected) Modifier.border(1.5.dp, c.text.copy(alpha = 0.9f), cardShape) else Modifier)
+            .then(if (borderAlpha > 0.01f) Modifier.border(1.5.dp, c.text.copy(alpha = borderAlpha), cardShape) else Modifier)
             .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Row 1: file tile, name, status
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AnimatedVisibility(
-                visible = selectionMode,
-                enter = fadeIn(tween(150)) + expandHorizontally(tween(180)),
-                exit = fadeOut(tween(100)) + shrinkHorizontally(tween(150))
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    DownixCheckbox(selected)
-                    Spacer(Modifier.width(10.dp))
-                }
+            // checkbox (22) + gap (10) = 32 dp slot that opens smoothly instead of popping in
+            Box(Modifier.width(32.dp * sel), contentAlignment = Alignment.CenterStart) {
+                DownixCheckbox(
+                    selected,
+                    Modifier
+                        .requiredSize(22.dp)
+                        .graphicsLayer {
+                            alpha = sel
+                            val k = 0.6f + 0.4f * sel
+                            scaleX = k
+                            scaleY = k
+                        }
+                )
             }
             FileTile(item.fileName)
             Spacer(Modifier.width(10.dp))
@@ -1074,7 +1080,7 @@ internal fun sizeLabel(item: DownloadItem): String = when {
 @Composable
 internal fun StatusLine(item: DownloadItem) {
     val c = Downix.colors
-    val (label, color, weight) = when (item.state) {
+    val (label, color, _) = when (item.state) {
         DownloadState.DOWNLOADING -> {
             val text = when {
                 item.savingPercent >= 0 -> "Saving file · ${item.savingPercent}%"
@@ -1094,8 +1100,10 @@ internal fun StatusLine(item: DownloadItem) {
         DownloadState.COMPLETED -> Triple("Completed", c.green, FontWeight.Bold)
         DownloadState.CANCELED -> Triple("Canceled", c.textSecondary, FontWeight.Medium)
     }
-    val animated by animateColorAsState(color, tween(300), label = "status")
-    Text(label, color = animated, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    // Same duration and easing as the progress bar colour, so text and bar change together (no clash on resume).
+    // One font weight for every state: a bold <-> medium switch changed the text width and made it jump.
+    val animated by animateColorAsState(color, tween(380, easing = FastOutSlowInEasing), label = "status")
+    Text(label, color = animated, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /** 34 dp glass tile with a thin file-type icon. */
@@ -1134,6 +1142,7 @@ internal fun GlassProgress(
 ) {
     val c = Downix.colors
     val animated by animateFloatAsState(progress, tween(500, easing = LinearOutSlowInEasing), label = "progress")
+    val shownColor by animateColorAsState(color, tween(380, easing = FastOutSlowInEasing), label = "barColor")
     val x = if (indeterminate) {
         val sweep = rememberInfiniteTransition(label = "sweep")
         sweep.animateFloat(
@@ -1158,7 +1167,7 @@ internal fun GlassProgress(
                     val right = (start + w).coerceAtMost(size.width)
                     if (right > left) {
                         drawRoundRect(
-                            color = color,
+                            color = shownColor,
                             topLeft = Offset(left, 0f),
                             size = Size(right - left, size.height),
                             cornerRadius = r
@@ -1169,7 +1178,7 @@ internal fun GlassProgress(
                     if (fill > 0.5f) {
                         // never narrower than the bar is high, so the rounded end always looks right
                         drawRoundRect(
-                            color = color,
+                            color = shownColor,
                             size = Size(maxOf(fill, size.height), size.height),
                             cornerRadius = r
                         )

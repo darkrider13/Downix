@@ -82,6 +82,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -471,6 +474,17 @@ internal fun SwipeToDeleteBox(
     var leaving by remember { mutableStateOf(false) }
     var armed by remember { mutableStateOf(false) }
     val currentOnSwiped by rememberUpdatedState(onSwiped)
+    // soft red while dragging, full red once the delete point is passed; the trash icon pops a little then
+    val panelColor by animateColorAsState(
+        if (armed) c.red else c.red.copy(alpha = 0.7f),
+        tween(160, easing = FastOutSlowInEasing),
+        label = "swipePanel"
+    )
+    val iconPop by animateFloatAsState(
+        if (armed) 1.2f else 1f,
+        spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium),
+        label = "swipeIconPop"
+    )
 
     LaunchedEffect(parked) {
         if (!parked && !leaving && x != 0f) {
@@ -496,13 +510,18 @@ internal fun SwipeToDeleteBox(
             .drawBehind {
                 val reveal = -x
                 if (reveal > 0.5f) {
-                    val fade = (reveal / 24.dp.toPx()).coerceIn(0f, 1f)
-                    drawRoundRect(
-                        color = c.red.copy(alpha = 0.92f * fade),
-                        topLeft = Offset(size.width - reveal, 0f),
-                        size = Size(reveal, size.height),
-                        cornerRadius = CornerRadius(16.dp.toPx())
-                    )
+                    // a small gap keeps the card edge and the red panel clearly apart (no merged corners)
+                    val gap = 6.dp.toPx()
+                    val w = (reveal - gap).coerceAtLeast(0f)
+                    val fade = (reveal / 32.dp.toPx()).coerceIn(0f, 1f)
+                    if (w > 0f) {
+                        drawRoundRect(
+                            color = panelColor.copy(alpha = panelColor.alpha * fade),
+                            topLeft = Offset(size.width - w, 0f),
+                            size = Size(w, size.height),
+                            cornerRadius = CornerRadius(16.dp.toPx())
+                        )
+                    }
                 }
             }
             .draggable(
@@ -537,13 +556,25 @@ internal fun SwipeToDeleteBox(
                 .size(22.dp)
                 .graphicsLayer {
                     val reveal = -x
-                    alpha = ((reveal - 28.dp.toPx()) / 24.dp.toPx()).coerceIn(0f, 1f)
-                    val s = if (armed) 1.15f else 1f
-                    scaleX = s
-                    scaleY = s
+                    val t = ((reveal - 24.dp.toPx()) / 40.dp.toPx()).coerceIn(0f, 1f)
+                    alpha = t
+                    val k = (0.6f + 0.4f * t) * iconPop
+                    scaleX = k
+                    scaleY = k
+                    translationX = (1f - t) * 14.dp.toPx()
                 }
         )
-        Box(Modifier.fillMaxWidth().graphicsLayer { translationX = x }) { content() }
+        Box(
+            Modifier.fillMaxWidth().graphicsLayer {
+                translationX = x
+                // the card eases back a little while it is pulled: slightly smaller and softer
+                val p = if (widthPx > 0f) (-x / (widthPx * 0.33f)).coerceIn(0f, 1f) else 0f
+                val k = 1f - 0.02f * p
+                scaleX = k
+                scaleY = k
+                alpha = 1f - 0.12f * p
+            }
+        ) { content() }
     }
 }
 
@@ -1143,21 +1174,40 @@ internal fun GlassField(
 internal fun DownixCheckbox(checked: Boolean, modifier: Modifier = Modifier) {
     val c = Downix.colors
     val shape = RoundedCornerShape(7.dp)
+    val spec = tween<Float>(180, easing = FastOutSlowInEasing)
+    val t by animateFloatAsState(if (checked) 1f else 0f, spec, label = "checkboxT")
+    val fill by animateColorAsState(
+        if (checked) Color.White else Color.White.copy(alpha = 0f),
+        tween(180, easing = FastOutSlowInEasing),
+        label = "checkboxFill"
+    )
+    val borderColor by animateColorAsState(
+        if (checked) c.whiteBorder else c.paused,
+        tween(180, easing = FastOutSlowInEasing),
+        label = "checkboxBorder"
+    )
+    val borderWidth by animateDpAsState(if (checked) 1.dp else 2.dp, tween(180, easing = FastOutSlowInEasing), label = "checkboxBorderW")
     Box(
         modifier
             .size(22.dp)
             .clip(shape)
-            .background(if (checked) Color.White else Color.Transparent, shape)
-            .border(
-                width = if (checked) 1.dp else 2.dp,
-                color = if (checked) c.whiteBorder else c.paused,
-                shape = shape
-            ),
+            .background(fill, shape)
+            .border(width = borderWidth, color = borderColor, shape = shape),
         contentAlignment = Alignment.Center
     ) {
-        if (checked) {
-            Icon(DownixIcons.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(15.dp))
-        }
+        Icon(
+            DownixIcons.Check,
+            contentDescription = null,
+            tint = Color.Black,
+            modifier = Modifier
+                .size(15.dp)
+                .graphicsLayer {
+                    alpha = t
+                    val k = 0.5f + 0.5f * t
+                    scaleX = k
+                    scaleY = k
+                }
+        )
     }
 }
 
