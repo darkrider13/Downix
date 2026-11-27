@@ -788,11 +788,8 @@ private fun NormalHeader(
                 onClick = onSettings
             )
             if (updatePending) {
-                // small green dot with a thin ring around it (a light gap between dot and line)
-                Canvas(Modifier.align(Alignment.TopEnd).padding(top = 5.dp, end = 5.dp).size(12.dp)) {
-                    drawCircle(c.green, radius = 3.5.dp.toPx())
-                    drawCircle(c.green.copy(alpha = 0.5f), radius = 5.5.dp.toPx(), style = Stroke(width = 1.dp.toPx()))
-                }
+                // soft green dot with a faint ring and a clear gap between them
+                UpdateDot(Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 4.dp))
             }
         }
     }
