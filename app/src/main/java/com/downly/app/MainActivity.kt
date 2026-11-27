@@ -691,16 +691,20 @@ private fun BoxScope.PlusMenu(
         label = "plusMenu"
     )
 
-    // Always there, but it only takes touches while the menu is open.
+    // Always drawn (it fades with the menu), but it only has a touch handler while the menu is open.
+    // When closed it must NOT take touches, or the whole screen behind it stops responding.
     Box(
         Modifier
             .fillMaxSize()
             .drawBehind { drawRect(c.plusOverlay, alpha = open.value) }
-            .clickable(
-                enabled = expanded,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClose
+            .then(
+                if (expanded) {
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onClose
+                    )
+                } else Modifier
             )
     )
 
@@ -758,7 +762,7 @@ private fun PlusMenuOption(
     ) {
         Box(
             Modifier
-                .pressable(enabled = visible, onClick = onClick)
+                .then(if (visible) Modifier.pressable(onClick = onClick) else Modifier)
                 .glass(RoundedCornerShape(12.dp), strong = true, flat = true)
                 .heightIn(min = 36.dp)
                 .padding(horizontal = 14.dp),
@@ -770,7 +774,7 @@ private fun PlusMenuOption(
         Box(
             Modifier
                 .size(46.dp)
-                .pressable(enabled = visible, onClick = onClick)
+                .then(if (visible) Modifier.pressable(onClick = onClick) else Modifier)
                 .clip(CircleShape)
                 .background(Color.White, CircleShape)
                 .border(1.dp, c.whiteBorder, CircleShape),
