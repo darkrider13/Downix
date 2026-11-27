@@ -9,7 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.widget.Toast
+import android.os.SystemClock
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.heightIn
@@ -43,6 +43,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -274,6 +277,17 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
     fun remove(id: Long) { viewModelScope.launch { repo.remove(id) } }
+    fun removeMany(ids: List<Long>) { viewModelScope.launch { ids.forEach { repo.remove(it) } } }
+    fun deleteManyWithFiles(ids: List<Long>, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            var failed = 0
+            ids.forEach { if (repo.deleteWithFile(it) == FileDeleteResult.FAILED) failed++ }
+            onResult(
+                if (failed == 0) "${ids.size} deleted"
+                else "$failed of ${ids.size} files could not be deleted. Delete them in your Files app."
+            )
+        }
+    }
     fun pauseAll() { viewModelScope.launch { repo.pauseAll() } }
     fun clearFinished() { viewModelScope.launch { repo.clearFinished() } }
 
@@ -346,6 +360,28 @@ private fun MainScreen(
     var confirmCancel by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmRemove by remember { mutableStateOf<DownloadItem?>(null) }
 
+    // Multi-select: long press a card to start, tap cards to add / remove, then delete them together.
+    var selected by remember { mutableStateOf(setOf<Long>()) }
+    var confirmBulk by remember { mutableStateOf(false) }
+    val selecting = selected.isNotEmpty()
+    LaunchedEffect(filter, query) { selected = emptySet() }
+    LaunchedEffect(visible) {
+        val ids = visible.map { it.id }.toSet()
+        if (!ids.containsAll(selected)) selected = selected intersect ids
+    }
+    LaunchedEffect(selected) { if (selected.isEmpty()) confirmBulk = false }
+    BackHandler(enabled = selecting) { selected = emptySet() }
+
+    // Same questions as before: finished -> "Delete download?", running / paused -> "Cancel this download?",
+    // nothing downloaded yet -> removed at once.
+    val requestRemove: (DownloadItem) -> Unit = { item ->
+        when {
+            item.isCompleted -> confirmRemove = item
+            item.downloadedBytes == 0L -> vm.remove(item.id)
+            else -> confirmCancel = item
+        }
+    }
+
     // A link shared from another app opens the add dialog with the link filled in.
     LaunchedEffect(sharedLink) {
         if (sharedLink != null) {
@@ -391,7 +427,12 @@ private fun MainScreen(
                 onSettings = { showSettings = true },
                 updatePending = updateState is UpdateState.Available ||
                     updateState is UpdateState.Downloading ||
-                    updateState is UpdateState.ReadyToInstall
+                    updateState is UpdateState.ReadyToInstall,
+                selectedCount = selected.size,
+                allSelected = visible.isNotEmpty() && selected.size == visible.size,
+                onExitSelection = { selected = emptySet() },
+                onSelectAll = { selected = visible.map { it.id }.toSet() },
+                onDeleteSelected = { confirmBulk = true }
             )
             AnimatedVisibility(
                 visible = network == NetworkState.NONE,
@@ -429,23 +470,29 @@ private fun MainScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(visible, key = { it.id }) { item ->
-                            DownloadCard(
-                                item = item,
-                                onPause = { vm.pause(item.id) },
-                                onResume = { vm.resume(item.id) },
-                                onRemove = {
-                                    when {
-                                        item.isCompleted -> confirmRemove = item // ask: file too?
-                                        item.downloadedBytes == 0L -> vm.remove(item.id)
-                                        else -> confirmCancel = item
-                                    }
-                                },
-                                onOpen = { openDownloaded(context, item.savedUri) },
-                                onDetails = { detailsId = item.id },
+                            SwipeToDeleteBox(
+                                enabled = !selecting,
+                                parked = confirmRemove?.id == item.id || confirmCancel?.id == item.id,
+                                onSwiped = { requestRemove(item) },
                                 modifier = Modifier.animateItemPlacement(
                                     spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
                                 )
-                            )
+                            ) {
+                                DownloadCard(
+                                    item = item,
+                                    selected = item.id in selected,
+                                    selectionMode = selecting,
+                                    onPause = { vm.pause(item.id) },
+                                    onResume = { vm.resume(item.id) },
+                                    onRemove = { requestRemove(item) },
+                                    onOpen = { openDownloaded(context, item.savedUri, showToast) },
+                                    onDetails = { detailsId = item.id },
+                                    onToggleSelect = {
+                                        selected = if (item.id in selected) selected - item.id else selected + item.id
+                                    },
+                                    onLongPress = { if (item.id !in selected) selected = selected + item.id }
+                                )
+                            }
                         }
                     }
                 }
@@ -470,22 +517,10 @@ private fun MainScreen(
                     addInitial = link
                     showAdd = true
                 } else {
-                    Toast.makeText(context, "No link found on the clipboard", Toast.LENGTH_SHORT).show()
+                    showToast("No link found on the clipboard")
                 }
             }
         )
-
-        AnimatedVisibility(
-            visible = toastText != null,
-            enter = fadeIn(tween(130)) + slideInVertically(tween(170)) { it / 4 },
-            exit = fadeOut(tween(110)),
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .navigationBarsPadding()
-                .padding(start = 16.dp, end = 84.dp, bottom = 22.dp)
-        ) {
-            DownlyToast(text = toastText ?: lastToast)
-        }
 
         AnimatedVisibility(
             visible = showSettings,
@@ -499,9 +534,23 @@ private fun MainScreen(
                 onApply = vm::applySettings,
                 onCheckUpdate = vm::checkForUpdates,
                 onOpenUpdate = { showUpdate = true },
-                onInstallUpdate = { installUpdate(context, vm) },
+                onInstallUpdate = { installUpdate(context, vm, showToast) },
+                onMessage = showToast,
                 onClose = { showSettings = false }
             )
+        }
+
+        // drawn last, so a message is visible above the Settings screen too
+        AnimatedVisibility(
+            visible = toastText != null,
+            enter = fadeIn(tween(130)) + slideInVertically(tween(170)) { it / 4 },
+            exit = fadeOut(tween(110)),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 84.dp, bottom = 22.dp)
+        ) {
+            DownlyToast(text = toastText ?: lastToast)
         }
     }
 
@@ -525,7 +574,7 @@ private fun MainScreen(
         UpdateDialog(
             state = updateState,
             onDownload = vm::downloadUpdate,
-            onInstall = { installUpdate(context, vm) },
+            onInstall = { installUpdate(context, vm, showToast) },
             onClose = { showUpdate = false }
         )
     }
@@ -534,9 +583,9 @@ private fun MainScreen(
         DetailsDialog(
             item = detailsItem,
             onClose = { detailsId = null },
-            onCopyLink = { copyLink(context, detailsItem.url) },
-            onShare = { shareDownloaded(context, detailsItem) },
-            onOpen = { openDownloaded(context, detailsItem.savedUri) },
+            onCopyLink = { copyLink(context, detailsItem.url, showToast) },
+            onShare = { shareDownloaded(context, detailsItem, showToast) },
+            onOpen = { openDownloaded(context, detailsItem.savedUri, showToast) },
             onDeleteFile = { confirmDeleteFile = detailsItem }
         )
     }
@@ -569,6 +618,28 @@ private fun MainScreen(
         )
     }
 
+    if (confirmBulk) {
+        val chosen = downloads.filter { it.id in selected }
+        if (chosen.isNotEmpty()) {
+            ConfirmBulkDeleteDialog(
+                count = chosen.size,
+                hasFinished = chosen.any { it.isCompleted },
+                onCancel = { confirmBulk = false },
+                onListOnly = {
+                    vm.removeMany(chosen.map { it.id })
+                    showToast(if (chosen.size == 1) "Removed from list" else "${chosen.size} removed from the list")
+                    selected = emptySet()
+                    confirmBulk = false
+                },
+                onDeleteFiles = {
+                    vm.deleteManyWithFiles(chosen.map { it.id }) { showToast(it) }
+                    selected = emptySet()
+                    confirmBulk = false
+                }
+            )
+        }
+    }
+
     confirmCancel?.let { item ->
         ConfirmCancelDialog(
             fileName = item.fileName,
@@ -583,6 +654,73 @@ private fun MainScreen(
 
 @Composable
 private fun Header(
+    downloads: List<DownloadItem>,
+    searchOpen: Boolean,
+    onSearch: () -> Unit,
+    onPauseAll: () -> Unit,
+    onClearFinished: () -> Unit,
+    onSettings: () -> Unit,
+    updatePending: Boolean = false,
+    selectedCount: Int = 0,
+    allSelected: Boolean = false,
+    onExitSelection: () -> Unit = {},
+    onSelectAll: () -> Unit = {},
+    onDeleteSelected: () -> Unit = {}
+) {
+    // keeps the last count while the selection bar fades out, so it never shows "0 selected"
+    val lastCount = remember { intArrayOf(0) }
+    if (selectedCount > 0) lastCount[0] = selectedCount
+    Crossfade(targetState = selectedCount > 0, animationSpec = tween(160), label = "headerMode") { selecting ->
+        if (selecting) {
+            SelectionHeader(
+                count = if (selectedCount > 0) selectedCount else lastCount[0],
+                allSelected = allSelected,
+                onExit = onExitSelection,
+                onSelectAll = onSelectAll,
+                onDelete = onDeleteSelected
+            )
+        } else {
+            NormalHeader(downloads, searchOpen, onSearch, onPauseAll, onClearFinished, onSettings, updatePending)
+        }
+    }
+}
+
+/** Replaces the normal header while cards are selected: close, count, select all, red trash. */
+@Composable
+private fun SelectionHeader(
+    count: Int,
+    allSelected: Boolean,
+    onExit: () -> Unit,
+    onSelectAll: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val c = Downly.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 4.dp)
+            .padding(start = 0.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        PlainIconButton(icon = DownlyIcons.Close, description = "Cancel selection", tint = c.text, onClick = onExit)
+        Spacer(Modifier.width(4.dp))
+        Column(Modifier.weight(1f)) {
+            Text("$count selected", color = c.text, fontSize = 18.sp, lineHeight = 25.sp, fontWeight = FontWeight.Bold)
+            Text("Tap cards to select more", color = c.textSecondary, fontSize = 11.sp, lineHeight = 15.sp)
+        }
+        PlainIconButton(
+            icon = DownlyIcons.SelectAll,
+            description = "Select all",
+            tint = c.text,
+            onClick = onSelectAll,
+            enabled = !allSelected
+        )
+        PlainIconButton(icon = DownlyIcons.Trash, description = "Delete selected", tint = c.red, onClick = onDelete)
+    }
+}
+
+@Composable
+private fun NormalHeader(
     downloads: List<DownloadItem>,
     searchOpen: Boolean,
     onSearch: () -> Unit,
@@ -626,7 +764,7 @@ private fun Header(
             enabled = active > 0
         )
         PlainIconButton(
-            icon = DownlyIcons.ClearAll,
+            icon = DownlyIcons.Trash,
             description = "Clear finished downloads",
             tint = c.red,
             onClick = onClearFinished,
@@ -795,24 +933,44 @@ private fun PlusMenuOption(
 @Composable
 private fun DownloadCard(
     item: DownloadItem,
+    selected: Boolean,
+    selectionMode: Boolean,
     onPause: () -> Unit,
     onResume: () -> Unit,
     onRemove: () -> Unit,
     onOpen: () -> Unit,
     onDetails: () -> Unit,
+    onToggleSelect: () -> Unit,
+    onLongPress: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val c = Downly.colors
+    val cardShape = RoundedCornerShape(16.dp)
     Column(
         modifier
             .fillMaxWidth()
-            .pressable(pressedScale = 0.985f, onClick = onDetails)
-            .glass(RoundedCornerShape(16.dp))
+            .pressable(
+                pressedScale = 0.985f,
+                onLongClick = onLongPress,
+                onClick = if (selectionMode) onToggleSelect else onDetails
+            )
+            .glass(cardShape)
+            .then(if (selected) Modifier.border(1.5.dp, c.text.copy(alpha = 0.9f), cardShape) else Modifier)
             .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Row 1: file tile, name, status
         Row(verticalAlignment = Alignment.CenterVertically) {
+            AnimatedVisibility(
+                visible = selectionMode,
+                enter = fadeIn(tween(150)) + expandHorizontally(tween(180)),
+                exit = fadeOut(tween(100)) + shrinkHorizontally(tween(150))
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    DownlyCheckbox(selected)
+                    Spacer(Modifier.width(10.dp))
+                }
+            }
             FileTile(item.fileName)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
@@ -858,21 +1016,21 @@ private fun DownloadCard(
             )
             when {
                 item.isCompleted -> {
-                    AnimatedIconButton(DownlyIcons.OpenFile, "Open file", c.text, onOpen)
-                    PlainIconButton(DownlyIcons.Trash, "Remove from list", c.red, onRemove)
+                    AnimatedIconButton(DownlyIcons.OpenFile, "Open file", c.text, onOpen, enabled = !selectionMode)
+                    PlainIconButton(DownlyIcons.Trash, "Remove from list", c.red, onRemove, enabled = !selectionMode)
                 }
+                // No red cross any more: swipe the card to the left to delete / cancel it.
                 item.canPause -> {
-                    AnimatedIconButton(DownlyIcons.Pause, "Pause", c.text, onPause)
-                    PlainIconButton(DownlyIcons.Close, "Cancel download", c.red, onRemove)
+                    AnimatedIconButton(DownlyIcons.Pause, "Pause", c.text, onPause, enabled = !selectionMode)
                 }
                 else -> {
                     AnimatedIconButton(
                         icon = if (item.state == DownloadState.FAILED) DownlyIcons.Retry else DownlyIcons.Play,
                         description = if (item.state == DownloadState.FAILED) "Retry" else "Resume",
                         tint = c.text,
-                        onClick = onResume
+                        onClick = onResume,
+                        enabled = !selectionMode
                     )
-                    PlainIconButton(DownlyIcons.Close, "Cancel download", c.red, onRemove)
                 }
             }
         }
@@ -1047,7 +1205,11 @@ private fun AddLinkDialog(
         probe = null
         checking = true
         scope.launch {
+            val startedAt = SystemClock.elapsedRealtime()
             val result = LinkChecker.check(value)
+            // The loading state always stays visible for 2.5 s, then the result (ok or error) appears.
+            val remaining = 2500L - (SystemClock.elapsedRealtime() - startedAt)
+            if (remaining > 0) delay(remaining)
             checking = false
             // Ignore the answer if the link was edited while checking.
             if (value == text.trim()) probe = result
@@ -1087,26 +1249,41 @@ private fun AddLinkDialog(
             focusRequester = focus,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
             trailing = {
-                Box(
-                    Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .clickable {
-                            clipboard.getText()?.text?.let {
-                                text = extractLink(it) ?: it.trim()
+                // Empty box: paste button. As soon as there is text: one tap clears the box.
+                AnimatedContent(
+                    targetState = text.isNotEmpty(),
+                    transitionSpec = {
+                        (fadeIn(tween(140)) + scaleIn(initialScale = 0.7f, animationSpec = tween(140))) togetherWith
+                            (fadeOut(tween(90)) + scaleOut(targetScale = 0.7f, animationSpec = tween(90)))
+                    },
+                    label = "fieldAction"
+                ) { hasText ->
+                    Box(
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .clickable {
+                                if (hasText) {
+                                    text = ""
+                                    runCatching { focus.requestFocus() }
+                                } else {
+                                    clipboard.getText()?.text?.let {
+                                        text = extractLink(it) ?: it.trim()
+                                    }
+                                }
                                 showError = false
                                 duplicate = null
                                 probe = null
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        DownlyIcons.Clipboard,
-                        contentDescription = "Paste from clipboard",
-                        tint = c.text,
-                        modifier = Modifier.size(18.dp)
-                    )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (hasText) DownlyIcons.Close else DownlyIcons.Clipboard,
+                            contentDescription = if (hasText) "Clear text" else "Paste from clipboard",
+                            tint = c.text,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         )
@@ -1279,6 +1456,7 @@ private fun SettingsScreen(
     onCheckUpdate: () -> Unit,
     onOpenUpdate: () -> Unit,
     onInstallUpdate: () -> Unit,
+    onMessage: (String) -> Unit,
     onClose: () -> Unit
 ) {
     val c = Downly.colors
@@ -1286,7 +1464,7 @@ private fun SettingsScreen(
     // Changes stay here until the user taps Apply.
     var draft by remember { mutableStateOf(settings) }
     val dirty = draft != settings
-    val showMessage: (String) -> Unit = { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+    val showMessage = onMessage
     BackHandler(onBack = onClose)
 
     val folderLauncher = rememberLauncherForActivityResult(
@@ -1331,8 +1509,7 @@ private fun SettingsScreen(
                         PillButton(
                             "Apply",
                             onClick = {
-                                onApply(draft)
-                                showMessage("Settings saved")
+                                onApply(draft) // the Apply button fades away by itself: no toast needed
                             },
                             small = true,
                             modifier = Modifier.padding(end = 8.dp)
@@ -1612,20 +1789,18 @@ private fun appVersion(context: Context): String = try {
 }
 
 /** Starts the system installer for the downloaded update and explains the one case that needs a user action. */
-private fun installUpdate(context: Context, vm: MainViewModel) {
+private fun installUpdate(context: Context, vm: MainViewModel, onMessage: (String) -> Unit) {
     when (vm.installUpdate(context)) {
         InstallStart.STARTED -> Unit
-        InstallStart.NEEDS_PERMISSION -> Toast.makeText(
-            context, "Allow Downly to install apps, then come back and tap Install", Toast.LENGTH_LONG
-        ).show()
-        InstallStart.FAILED -> Toast.makeText(context, "Could not start the installer", Toast.LENGTH_LONG).show()
+        InstallStart.NEEDS_PERMISSION -> onMessage("Allow Downly to install apps, then come back and tap Install")
+        InstallStart.FAILED -> onMessage("Could not start the installer")
     }
 }
 
 private fun Context.isGranted(permission: String): Boolean =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
-private fun openDownloaded(context: Context, savedUri: String?) {
+private fun openDownloaded(context: Context, savedUri: String?, onMessage: (String) -> Unit = {}) {
     if (savedUri.isNullOrBlank()) return
     try {
         val uri = Uri.parse(savedUri)
@@ -1640,6 +1815,6 @@ private fun openDownloaded(context: Context, savedUri: String?) {
         }
         context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     } catch (e: Exception) {
-        Toast.makeText(context, "Can't open this file", Toast.LENGTH_SHORT).show()
+        onMessage("Can't open this file")
     }
 }

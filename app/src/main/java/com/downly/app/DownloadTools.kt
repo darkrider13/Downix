@@ -7,7 +7,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.webkit.MimeTypeMap
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -93,10 +92,10 @@ internal fun FilterBar(
     filter: DownloadFilter,
     onFilter: (DownloadFilter) -> Unit
 ) {
+    // The four pills share the whole row equally: no empty space on the right.
     Row(
         Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -105,7 +104,8 @@ internal fun FilterBar(
                 label = option.label,
                 count = items.count { option.matches(it) },
                 selected = option == filter,
-                onClick = { onFilter(option) }
+                onClick = { onFilter(option) },
+                modifier = Modifier.weight(1f)
             )
         }
     }
@@ -113,22 +113,32 @@ internal fun FilterBar(
 
 /** 32 dp chip, radius 16. Selected = white (dark mode) or deep ink (day mode) with bold text, others = glass. */
 @Composable
-private fun FilterPill(label: String, count: Int, selected: Boolean, onClick: () -> Unit) {
+private fun FilterPill(
+    label: String,
+    count: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val c = Downly.colors
     val shape = RoundedCornerShape(16.dp)
+    val text = "$label $count"
     Box(
-        Modifier
+        modifier
             .height(32.dp)
             .pressable(onClick = onClick)
             .then(if (selected) Modifier.selectedSurface(shape) else Modifier.glass(shape))
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
-            "$label $count",
+            text,
             color = if (selected) c.onSelected else c.textSecondary,
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+            fontSize = if (text.length > 12) 11.sp else 12.sp, // e.g. "Completed 100" still fits
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip
         )
     }
 }
@@ -380,21 +390,73 @@ internal fun ConfirmRemoveDialog(
     }
 }
 
+/**
+ * Delete sheet for several selected cards. The checkbox "Also delete the finished files from phone" is
+ * unchecked by default (only shown when at least one selected download is finished).
+ */
+@Composable
+internal fun ConfirmBulkDeleteDialog(
+    count: Int,
+    hasFinished: Boolean,
+    onCancel: () -> Unit,
+    onListOnly: () -> Unit,
+    onDeleteFiles: () -> Unit
+) {
+    val c = Downly.colors
+    var alsoFile by remember { mutableStateOf(false) }
+    GlassBottomSheet(onDismiss = onCancel, title = if (count == 1) "Delete 1 download?" else "Delete $count downloads?") {
+        Text(
+            "They will be removed from the list. Downloads that are not finished are cancelled and their partial files are deleted.",
+            color = c.textSecondary,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        if (hasFinished) {
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(RoundedCornerShape(14.dp))
+                    .clickable { alsoFile = !alsoFile }
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DownlyCheckbox(alsoFile)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Also delete the finished files from phone", color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("This can't be undone", color = c.textSecondary, fontSize = 11.sp)
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Cancel", onClick = onCancel, outlineRed = true, modifier = Modifier.weight(1f))
+            PillButton(
+                "Delete",
+                onClick = { if (alsoFile) onDeleteFiles() else onListOnly() },
+                danger = true,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Actions: copy link, share file                                     */
 /* ------------------------------------------------------------------ */
 
-internal fun copyLink(context: Context, url: String) {
+internal fun copyLink(context: Context, url: String, onMessage: (String) -> Unit = {}) {
     val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
     clipboard.setPrimaryClip(ClipData.newPlainText("Downly link", url))
     // Android 13+ shows its own "copied" confirmation.
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-        Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
+        onMessage("Link copied")
     }
 }
 
 /** Shares the finished file itself (not the link) with any app. */
-internal fun shareDownloaded(context: Context, item: DownloadItem) {
+internal fun shareDownloaded(context: Context, item: DownloadItem, onMessage: (String) -> Unit = {}) {
     val saved = item.savedUri
     if (saved.isNullOrBlank()) return
     try {
@@ -414,7 +476,7 @@ internal fun shareDownloaded(context: Context, item: DownloadItem) {
         send.clipData = ClipData.newRawUri(item.fileName, uri)
         context.startActivity(Intent.createChooser(send, "Share file").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     } catch (e: Exception) {
-        Toast.makeText(context, "Can't share this file", Toast.LENGTH_SHORT).show()
+        onMessage("Can't share this file")
     }
 }
 

@@ -4,11 +4,18 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.height
@@ -399,12 +406,15 @@ internal fun Modifier.selectedSurface(shape: Shape): Modifier = composed {
 }
 
 /** Soft press feedback (spring scale) for every tappable element. */
+@OptIn(ExperimentalFoundationApi::class)
 internal fun Modifier.pressable(
     enabled: Boolean = true,
     pressedScale: Float = 0.94f,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit
 ): Modifier = composed {
     val source = remember { MutableInteractionSource() }
+    val haptic = LocalHapticFeedback.current
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) pressedScale else 1f,
@@ -413,13 +423,128 @@ internal fun Modifier.pressable(
     )
     this
         .graphicsLayer { scaleX = scale; scaleY = scale }
-        .clickable(
-            interactionSource = source,
-            indication = null,
-            enabled = enabled,
-            role = Role.Button,
-            onClick = onClick
+        .then(
+            if (onLongClick == null) {
+                Modifier.clickable(
+                    interactionSource = source,
+                    indication = null,
+                    enabled = enabled,
+                    role = Role.Button,
+                    onClick = onClick
+                )
+            } else {
+                Modifier.combinedClickable(
+                    interactionSource = source,
+                    indication = null,
+                    enabled = enabled,
+                    role = Role.Button,
+                    onLongClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongClick()
+                    },
+                    onClick = onClick
+                )
+            }
         )
+}
+
+/**
+ * Swipe a card to the LEFT to delete it. The card follows the finger over a red strip with a trash icon.
+ * Past 1/3 of the width (or a fast flick) it slides out, then [onSwiped] opens the delete popup. While that
+ * popup is open ([parked] = true) the card stays out of sight; when the popup closes without deleting,
+ * the card slides back by itself. A short swipe just springs back.
+ */
+@Composable
+internal fun SwipeToDeleteBox(
+    enabled: Boolean,
+    parked: Boolean,
+    onSwiped: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val c = Downly.colors
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    // x: how far the card is pulled to the left (0 or negative). Read only while drawing / placing.
+    var x by remember { mutableFloatStateOf(0f) }
+    var widthPx by remember { mutableFloatStateOf(0f) }
+    var leaving by remember { mutableStateOf(false) }
+    var armed by remember { mutableStateOf(false) }
+    val currentOnSwiped by rememberUpdatedState(onSwiped)
+
+    LaunchedEffect(parked) {
+        if (!parked && !leaving && x != 0f) {
+            animate(x, 0f, animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)) { v, _ -> x = v }
+            armed = false
+        }
+    }
+
+    val dragState = rememberDraggableState { delta ->
+        if (!leaving) {
+            x = (x + delta).coerceIn(-widthPx, 0f)
+            val past = -x > widthPx * 0.33f
+            if (past != armed) {
+                armed = past
+                if (past) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            }
+        }
+    }
+
+    Box(
+        modifier
+            .onSizeChanged { widthPx = it.width.toFloat() }
+            .drawBehind {
+                val reveal = -x
+                if (reveal > 0.5f) {
+                    val fade = (reveal / 24.dp.toPx()).coerceIn(0f, 1f)
+                    drawRoundRect(
+                        color = c.red.copy(alpha = 0.92f * fade),
+                        topLeft = Offset(size.width - reveal, 0f),
+                        size = Size(reveal, size.height),
+                        cornerRadius = CornerRadius(16.dp.toPx())
+                    )
+                }
+            }
+            .draggable(
+                state = dragState,
+                orientation = Orientation.Horizontal,
+                enabled = enabled && !leaving,
+                onDragStopped = { velocity ->
+                    val shouldDelete = -x > widthPx * 0.33f || (velocity < -1400f && -x > widthPx * 0.12f)
+                    if (shouldDelete) {
+                        leaving = true
+                        scope.launch {
+                            animate(x, -widthPx, animationSpec = tween(200, easing = FastOutLinearInEasing)) { v, _ -> x = v }
+                            currentOnSwiped()
+                            leaving = false
+                        }
+                    } else {
+                        scope.launch {
+                            animate(x, 0f, animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f)) { v, _ -> x = v }
+                            armed = false
+                        }
+                    }
+                }
+            ),
+        contentAlignment = Alignment.CenterEnd
+    ) {
+        Icon(
+            DownlyIcons.Trash,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier
+                .padding(end = 22.dp)
+                .size(22.dp)
+                .graphicsLayer {
+                    val reveal = -x
+                    alpha = ((reveal - 28.dp.toPx()) / 24.dp.toPx()).coerceIn(0f, 1f)
+                    val s = if (armed) 1.15f else 1f
+                    scaleX = s
+                    scaleY = s
+                }
+        )
+        Box(Modifier.fillMaxWidth().graphicsLayer { translationX = x }) { content() }
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -649,7 +774,7 @@ internal object PopupLayers {
 internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 10.dp): Modifier = composed {
     val strength = animateFloatAsState(
         targetValue = if (active) 1f else 0f,
-        animationSpec = tween(if (active) 240 else 160),
+        animationSpec = tween(if (active) 240 else 70),
         label = "popupBlur"
     )
     val maxPx = with(LocalDensity.current) { maxRadius.toPx() }
@@ -667,16 +792,38 @@ internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 10.dp): Modifier
  * under the status bar and navigation bar too, so the scrim darkens them together with the app.
  */
 @Composable
-internal fun rememberPopupCovered(): Boolean {
+internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
     val level = remember { Snapshot.withoutReadObservation { PopupLayers.count } }
+    // true while this popup is counted in PopupLayers. A popup that starts closing (slide-down) lets go of
+    // its count at once, so the blur behind it ends together with the close, not after the animation.
+    val registered = remember { booleanArrayOf(false) }
     DisposableEffect(Unit) {
         PopupLayers.count++
-        onDispose { PopupLayers.count-- }
+        registered[0] = true
+        onDispose {
+            if (registered[0]) {
+                registered[0] = false
+                PopupLayers.count--
+            }
+        }
+    }
+    SideEffect {
+        if (closing && registered[0]) {
+            registered[0] = false
+            PopupLayers.count--
+        }
     }
     val view = LocalView.current
     val window = (view.parent as? DialogWindowProvider)?.window
     SideEffect {
-        window?.apply {
+        window ?: return@SideEffect
+        // already prepared: do not touch the window again on every recomposition (that causes flicker)
+        val attrs = window.attributes
+        if (attrs.width == android.view.ViewGroup.LayoutParams.MATCH_PARENT &&
+            attrs.height == android.view.ViewGroup.LayoutParams.MATCH_PARENT &&
+            (attrs.flags and android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS) != 0
+        ) return@SideEffect
+        window.apply {
             setDimAmount(0f)
             setLayout(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -786,7 +933,7 @@ internal fun GlassBottomSheet(
         onDismissRequest = closeAll,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
-        val covered = rememberPopupCovered()
+        val covered = rememberPopupCovered(closing)
         Box(
             Modifier
                 .fillMaxSize()
@@ -854,6 +1001,29 @@ internal fun GlassBottomSheet(
 }
 
 /**
+ * Like imePadding(), but the lift is eased over 220 ms. A Dialog window often gets the keyboard height in one
+ * jump, which made the pop-up snap up and down; here it always glides. The value is read only while laying out,
+ * so nothing is recomposed during the glide.
+ */
+internal fun Modifier.smoothImePadding(): Modifier = composed {
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val navBottom = WindowInsets.navigationBars.getBottom(density)
+    val lift = animateFloatAsState(
+        targetValue = (imeBottom - navBottom).coerceAtLeast(0).toFloat(),
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "imeLift"
+    )
+    this.layout { measurable, constraints ->
+        val bottom = lift.value.toInt().coerceAtLeast(0)
+        val maxH = if (constraints.hasBoundedHeight) (constraints.maxHeight - bottom).coerceAtLeast(0) else constraints.maxHeight
+        val minH = (constraints.minHeight - bottom).coerceIn(0, maxH)
+        val placeable = measurable.measure(constraints.copy(minHeight = minH, maxHeight = maxH))
+        layout(placeable.width, placeable.height + bottom) { placeable.placeRelative(0, 0) }
+    }
+}
+
+/**
  * Centered pop-up (used by "Add link" and "From clipboard"): glass card in the middle of the screen,
  * dark scrim behind it, fades in and scales up in 200 ms. Tap outside or Back closes it.
  * Moves above the keyboard when it opens.
@@ -889,7 +1059,7 @@ internal fun GlassCenterDialog(
                 )
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .imePadding(),
+                .smoothImePadding(),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -1019,7 +1189,10 @@ internal fun DownlyToast(text: String, modifier: Modifier = Modifier) {
 /* ------------------------------------------------------------------ */
 
 internal object DownlyIcons {
-    private fun icon(name: String, vararg paths: String): ImageVector =
+    private fun icon(name: String, vararg paths: String): ImageVector = iconW(name, 1.8f, *paths)
+
+    /** Same as [icon] but with its own stroke width (the pause bars are a little bolder). */
+    private fun iconW(name: String, strokeWidth: Float, vararg paths: String): ImageVector =
         ImageVector.Builder(
             name = name,
             defaultWidth = 24.dp,
@@ -1032,7 +1205,7 @@ internal object DownlyIcons {
                     pathData = PathParser().parsePathString(d).toNodes(),
                     fill = null,
                     stroke = SolidColor(Color.Black),
-                    strokeLineWidth = 1.8f,
+                    strokeLineWidth = strokeWidth,
                     strokeLineCap = StrokeCap.Round,
                     strokeLineJoin = StrokeJoin.Round
                 )
@@ -1040,7 +1213,10 @@ internal object DownlyIcons {
         }.build()
 
     val Search by lazy { icon("Search", "M5 11a6 6 0 1 0 12 0a6 6 0 1 0-12 0", "M20 20l-4.5-4.5") }
-    val Pause by lazy { icon("Pause", "M9 5v14M15 5v14") }
+    val Pause by lazy { iconW("Pause", 2.8f, "M9 6v12M15 6v12") }
+    val SelectAll by lazy {
+        icon("SelectAll", "M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z", "M8 12l3 3 5-6")
+    }
     val ClearAll by lazy { icon("ClearAll", "M4 7h16M4 12h11M4 17h7") }
     /** Classic cog: toothed outline + centre ring. */
     val Settings by lazy {
