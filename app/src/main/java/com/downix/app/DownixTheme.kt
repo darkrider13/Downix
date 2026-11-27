@@ -406,9 +406,11 @@ internal fun Modifier.fadeAtListEdges(state: LazyListState, key: Any): Modifier 
         val top = info.viewportStartOffset.toFloat()
         val bottom = info.viewportEndOffset.toFloat()
         // top edge: fades while the card leaves; bottom edge: fades in while the card enters
-        val leaving = ((it.offset + size - top) / (size * 0.7f)).coerceIn(0f, 1f)
-        val entering = ((bottom - it.offset) / (size * 0.8f)).coerceIn(0f, 1f)
-        alpha = minOf(leaving, entering)
+        // longer fade distance (1.3 card heights) + smoothstep curve = a deeper, softer fade
+        val leaving = ((it.offset + size - top) / (size * 1.3f)).coerceIn(0f, 1f)
+        val entering = ((bottom - it.offset) / (size * 1.3f)).coerceIn(0f, 1f)
+        val t = minOf(leaving, entering)
+        alpha = t * t * (3f - 2f * t)
     }
 }
 
