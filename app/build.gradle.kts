@@ -8,23 +8,23 @@ plugins {
 
 // ---------------------------------------------------------------------------
 // Versioning
-//   versionName = <downly.versionBase>.<buildNumber>   e.g. 1.0.12
+//   versionName = <downix.versionBase>.<buildNumber>   e.g. 1.0.12
 //   versionCode = <buildNumber>                        always grows, so Android accepts it as an update
 // The CI workflow passes -PbuildNumber=<run number>. Local builds use buildNumber 0 (1.0.0, code 1).
 // ---------------------------------------------------------------------------
-val versionBase = providers.gradleProperty("downly.versionBase").orElse("1.0").get()
+val versionBase = providers.gradleProperty("downix.versionBase").orElse("1.0").get()
 val buildNumber = providers.gradleProperty("buildNumber").map { it.toInt() }.orElse(0).get()
 
 // GitHub "owner/repo" whose Releases hold the new APKs (used by the in-app update checker).
 val updateRepo = providers.gradleProperty("updateRepo")
-    .orElse(providers.gradleProperty("downly.updateRepo"))
+    .orElse(providers.gradleProperty("downix.updateRepo"))
     .orElse("")
     .get()
 
 // ---------------------------------------------------------------------------
 // Release signing. The SAME key must sign every build, otherwise Android refuses to
 // update over the installed app. Source order:
-//   1. environment (CI): DOWNLY_KEYSTORE_PATH, DOWNLY_KEYSTORE_PASSWORD, DOWNLY_KEY_ALIAS, DOWNLY_KEY_PASSWORD
+//   1. environment (CI): DOWNIX_KEYSTORE_PATH, DOWNIX_KEYSTORE_PASSWORD, DOWNIX_KEY_ALIAS, DOWNIX_KEY_PASSWORD
 //   2. signing-private/keystore.properties (local, never uploaded to GitHub)
 // ---------------------------------------------------------------------------
 val keystoreProps = Properties().apply {
@@ -35,22 +35,22 @@ val keystoreProps = Properties().apply {
 fun signingValue(envName: String, propName: String): String? =
     System.getenv(envName)?.takeIf { it.isNotBlank() } ?: keystoreProps.getProperty(propName)?.takeIf { it.isNotBlank() }
 
-val releaseStoreFile: File? = signingValue("DOWNLY_KEYSTORE_PATH", "storeFile")?.let { path ->
+val releaseStoreFile: File? = signingValue("DOWNIX_KEYSTORE_PATH", "storeFile")?.let { path ->
     val candidate = File(path)
     if (candidate.isAbsolute) candidate else rootProject.file("signing-private/$path")
 }?.takeIf { it.exists() }
-val releaseStorePassword = signingValue("DOWNLY_KEYSTORE_PASSWORD", "storePassword")
-val releaseKeyAlias = signingValue("DOWNLY_KEY_ALIAS", "keyAlias")
-val releaseKeyPassword = signingValue("DOWNLY_KEY_PASSWORD", "keyPassword")
+val releaseStorePassword = signingValue("DOWNIX_KEYSTORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("DOWNIX_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("DOWNIX_KEY_PASSWORD", "keyPassword")
 val hasReleaseSigning = releaseStoreFile != null &&
     releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null
 
 android {
-    namespace = "com.downly.app"
+    namespace = "com.downix.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.downly.app"
+        applicationId = "com.downix.app"
         minSdk = 24
         targetSdk = 34
         versionCode = maxOf(buildNumber, 1)

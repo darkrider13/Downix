@@ -1,4 +1,4 @@
-# Downly release (R8) rules. Library consumer rules (Room, OkHttp, WorkManager, Compose) are applied automatically.
+# Downix release (R8) rules. Library consumer rules (Room, OkHttp, WorkManager, Compose) are applied automatically.
 
 # Readable crash stack traces
 -keepattributes SourceFile,LineNumberTable
