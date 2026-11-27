@@ -390,19 +390,6 @@ private fun MainScreen(
             toastText = null
         }
     }
-    // After a manual "Check" finds a new version: show an instant toast (no popup, no animation).
-    var wasChecking by remember { mutableStateOf(false) }
-    LaunchedEffect(updateState) {
-        val s = updateState
-        if (s is UpdateState.Checking) {
-            wasChecking = true
-        } else {
-            if (wasChecking && s is UpdateState.Available) {
-                showToast("Update available: Downix ${s.info.versionName}")
-            }
-            wasChecking = false
-        }
-    }
     val clipboardManager = LocalClipboardManager.current
     var addInitial by remember { mutableStateOf("") }
     var confirmCancel by remember { mutableStateOf<DownloadItem?>(null) }
