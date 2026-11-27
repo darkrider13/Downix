@@ -1,7 +1,7 @@
 name: Build and Release
 
 # Every push to the main branch builds a signed APK and publishes it as a GitHub Release.
-# The app's update checker reads the latest release, so a new build shows up inside Downly.
+# The app's update checker reads the latest release, so a new build shows up inside Downix.
 on:
   push:
     branches: [main, master]
@@ -52,16 +52,16 @@ jobs:
 
       - name: Restore signing key
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/downly-release.jks"
-          echo "DOWNLY_KEYSTORE_PATH=$RUNNER_TEMP/downly-release.jks" >> "$GITHUB_ENV"
-          echo "DOWNLY_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
-          echo "DOWNLY_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
-          echo "DOWNLY_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/downix-release.jks"
+          echo "DOWNIX_KEYSTORE_PATH=$RUNNER_TEMP/downix-release.jks" >> "$GITHUB_ENV"
+          echo "DOWNIX_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "DOWNIX_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "DOWNIX_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
 
       - name: Work out the version
         id: version
         run: |
-          base=$(grep '^downly.versionBase=' gradle.properties | cut -d= -f2 | tr -d '[:space:]')
+          base=$(grep '^downix.versionBase=' gradle.properties | cut -d= -f2 | tr -d '[:space:]')
           echo "name=${base}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Build signed release APK
@@ -80,7 +80,7 @@ jobs:
             exit 1
           fi
           echo "APK found: $src"
-          out="Downly-${{ steps.version.outputs.name }}.apk"
+          out="Downix-${{ steps.version.outputs.name }}.apk"
           cp "$src" "$out"
           echo "file=$out" >> "$GITHUB_OUTPUT"
           signer=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n 1 || true)
@@ -97,7 +97,7 @@ jobs:
         run: |
           notes="${COMMIT_MESSAGE:-Manual build}"
           gh release create "v${{ steps.version.outputs.name }}" "${{ steps.apk.outputs.file }}" \
-            --title "Downly ${{ steps.version.outputs.name }}" \
+            --title "Downix ${{ steps.version.outputs.name }}" \
             --notes "$notes" \
             --target "${{ github.sha }}" \
             --latest
