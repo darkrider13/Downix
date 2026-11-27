@@ -83,7 +83,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.rememberSplineBasedDecay
+import androidx.compose.foundation.gestures.FlingBehavior
+import androidx.compose.foundation.gestures.ScrollScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.rememberUpdatedState
+import kotlin.math.abs
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -523,7 +529,7 @@ private fun MainScreen(
                         val listHeight = with(density) { (cardPx * 5 + gapPx * 4).toDp() }
                     LazyColumn(
                         state = listState,
-                        flingBehavior = rememberSnapFlingBehavior(listState),
+                        flingBehavior = rememberSmoothSnapFling(listState, cardPx + gapPx, (visible.size - 5).coerceAtLeast(0) * (cardPx + gapPx)),
                         modifier = Modifier.fillMaxWidth().height(listHeight),
                         contentPadding = PaddingValues(start = 12.dp, end = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -976,6 +982,38 @@ private fun PlusMenuOption(
             contentAlignment = Alignment.Center
         ) {
             Icon(icon, contentDescription = label, tint = Color.Black, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+/**
+ * Smooth "snap to card" fling. The finger's own fling speed decides how far the list would travel (the normal
+ * Android fling feel, nothing sticky); that landing spot is rounded to the nearest card edge and the list glides
+ * there in ONE ease-out motion, so it never stops half-way and never feels like it is being pulled back.
+ */
+@Composable
+private fun rememberSmoothSnapFling(listState: LazyListState, stepPx: Int, maxPos: Int): FlingBehavior {
+    val decay = rememberSplineBasedDecay<Float>()
+    val step by rememberUpdatedState(stepPx)
+    val max by rememberUpdatedState(maxPos)
+    return remember(listState, decay) {
+        object : FlingBehavior {
+            override suspend fun ScrollScope.performFling(initialVelocity: Float): Float {
+                val s = step.toFloat()
+                if (s <= 0f) return 0f
+                val pos = listState.firstVisibleItemIndex * s + listState.firstVisibleItemScrollOffset
+                val travel = decay.calculateTargetValue(0f, initialVelocity)
+                val target = (Math.round((pos + travel) / s) * s).coerceIn(0f, max.toFloat())
+                val delta = target - pos
+                if (abs(delta) < 1f) return 0f
+                val duration = (280 + abs(delta) / s * 80).toInt().coerceAtMost(900)
+                var last = 0f
+                animate(0f, delta, animationSpec = tween(duration, easing = LinearOutSlowInEasing)) { v, _ ->
+                    scrollBy(v - last)
+                    last = v
+                }
+                return 0f
+            }
         }
     }
 }
