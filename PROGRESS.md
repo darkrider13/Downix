@@ -10,7 +10,7 @@ Android download manager (native Kotlin + Jetpack Compose). Paste a link, downlo
 - UI design: see UI_REDESIGN_PROGRESS.md (Day + AMOLED Dark, glass surfaces, bottom sheets, full-screen Settings; tokens in DownixTheme.kt)
 - Features: progress bar, speed, size, pause / resume / cancel, background download with notification,
   saves to Downloads folder, download list persists after app is closed
-- Icon: grey rounded square, white down arrow, long soft shadow. Source of truth: branding/downix-icon.svg
+- Icon: black-to-dark-grey gradient rounded square, black disc, white progress ring with dot, white down arrow. Source of truth: branding/downix-icon.svg
   (Android files in res/ were generated from it: adaptive icon, legacy PNGs mipmap-*/ic_launcher.png, drawable/ic_stat_download.xml)
 
 ## Rules from the user (Banglish speaker, reply in Banglish)
