@@ -33,8 +33,9 @@ Android download manager (native Kotlin + Jetpack Compose). Paste a link, downlo
 | 8 | Settings backup (export / import), signed release key, in-app update checker, GitHub Actions build + publish release, R8, README | DONE |
 | 9 | List tools and file actions: filters, search, details, copy / share / delete file, file name, duplicates, clipboard suggestion | DONE |
 | 10 | Rename the app to Downix (package com.downix.app, files DownixTheme.kt, branding/downix-icon.*) | DONE |
+| 11 | UI polish: empty state icon without circle; status text + progress bar colour fade together (one font weight, no jump on resume); swipe-to-delete with separated red panel, colour / icon animation and card easing; smooth selection (checkbox slot, border and tick animate, no layout jump) | DONE |
 
-Progress: 10 of 10 done | 0 remaining | 0% remaining (all planned steps finished; next = first GitHub build and fixing compile errors if any)
+Progress: 11 of 11 done | 0 remaining | 0% remaining (all planned steps finished; next = first GitHub build and fixing compile errors if any)
 
 (The user redefined Step 8 in the Step 8 chat: settings backup + release + updater came first. The old Step 8 "list tools" became Step 9;
 the old Step 9 "GitHub Actions + R8 + README" was merged into the new Step 8.)
