@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalDensity
@@ -595,6 +596,57 @@ internal fun GlassDialog(onDismiss: () -> Unit, content: @Composable ColumnScope
 
 
 /**
+ * Call inside a Dialog's content. Makes the dialog window cover the WHOLE screen (under the status bar and
+ * the navigation bar too), so the scrim darkens them together with the app and they never look separate.
+ * On Android 12+ it also blurs whatever is behind the popup using the system's window blur: it runs in the
+ * compositor, so it costs the app almost nothing. [strength] is 0..1 and drives the blur while the popup
+ * opens / closes. A popup opened above another popup blurs that popup as well. Older phones (or phones with
+ * blur switched off) simply get the dark scrim.
+ */
+@Composable
+internal fun DialogWindowEffects(strength: () -> Float) {
+    val view = LocalView.current
+    val density = LocalDensity.current
+    val window = (view.parent as? DialogWindowProvider)?.window
+    SideEffect {
+        window?.apply {
+            setDimAmount(0f)
+            setLayout(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+            addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            statusBarColor = android.graphics.Color.TRANSPARENT
+            navigationBarColor = android.graphics.Color.TRANSPARENT
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                isNavigationBarContrastEnforced = false
+                isStatusBarContrastEnforced = false
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                attributes = attributes.also {
+                    it.layoutInDisplayCutoutMode =
+                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
+        }
+    }
+    if (android.os.Build.VERSION.SDK_INT >= 31 && window != null) {
+        LaunchedEffect(window) {
+            val maxRadius = with(density) { 14.dp.toPx() }
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+            var last = -1
+            snapshotFlow { (strength().coerceIn(0f, 1f) * maxRadius).toInt() }.collect { radius ->
+                if (radius != last) {
+                    last = radius
+                    window.attributes = window.attributes.also { it.blurBehindRadius = radius }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Bottom sheet from the design: glass, margin 8, radius 24, drag handle 36x4.
  * Opens with a smooth slide-up. Closes by: swiping the sheet down, tapping anywhere outside it, or Back.
  * Every close slides down smoothly. Moves above the keyboard.
@@ -679,10 +731,9 @@ internal fun GlassBottomSheet(
         onDismissRequest = closeAll,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
-        // The scrim is drawn by us, so switch off the window's own dim.
-        val view = LocalView.current
-        SideEffect {
-            (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
+        DialogWindowEffects {
+            val pulled = if (sheetH > 0f) (dragPx / sheetH).coerceIn(0f, 1f) else 0f
+            progress.value * (1f - pulled)
         }
         Box(
             Modifier
@@ -765,13 +816,9 @@ internal fun GlassCenterDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
-        // The scrim is drawn by us, so switch off the window's own dim.
-        val view = LocalView.current
-        SideEffect {
-            (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
-        }
         // Starts after the first frame is ready (no jump), drives scrim + card from one value.
         val progress = remember { Animatable(0f) }
+        DialogWindowEffects { progress.value }
         LaunchedEffect(Unit) {
             withFrameNanos { }
             progress.animateTo(1f, tween(190, easing = FastOutSlowInEasing))

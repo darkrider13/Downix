@@ -57,6 +57,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -1337,68 +1340,81 @@ private fun SettingsScreen(
                     }
                 }
 
-                Column(
+                // The credit sits in the middle of the free space under the settings (or just after them
+                // on a small screen, where the page scrolls).
+                BoxWithConstraints(
                     Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(bottom = 8.dp)
+                        .navigationBarsPadding()
                 ) {
-                    SettingSection("General", first = true)
-                    SettingGroup {
-                        SettingRow(title = SettingNames.THEME, subtitle = "Day or AMOLED dark") {
-                            ThemeSegmented(draft.themeMode) { draft = draft.copy(themeMode = it) }
+                    val density = LocalDensity.current
+                    val viewportPx = with(density) { maxHeight.roundToPx() }
+                    var contentPx by remember { mutableStateOf(0) }
+                    var creditPx by remember { mutableStateOf(0) }
+                    val gap = if (contentPx > 0 && creditPx > 0) {
+                        with(density) { ((viewportPx - contentPx - creditPx) / 2).toDp() }.coerceAtLeast(20.dp)
+                    } else 20.dp
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        Column(Modifier.onSizeChanged { contentPx = it.height }.padding(bottom = 8.dp)) {
+                        SettingSection("General", first = true)
+                        SettingGroup {
+                            SettingRow(title = SettingNames.THEME, subtitle = "Day or AMOLED dark") {
+                                ThemeSegmented(draft.themeMode) { draft = draft.copy(themeMode = it) }
+                            }
+                            SettingDivider()
+                            SettingRow(
+                                title = SettingNames.DOWNLOAD_FOLDER,
+                                subtitle = SaveLocation.folderPath(draft.downloadFolder)
+                            ) {
+                                PillButton(
+                                    "Change",
+                                    onClick = {
+                                        runCatching { folderLauncher.launch(null) }
+                                            .onFailure { showMessage("No folder picker found on this phone") }
+                                    },
+                                    small = true
+                                )
+                            }
+                            SettingDivider()
+                            SettingRow(title = SettingNames.MAX_PARALLEL, subtitle = "Files at the same time") {
+                                Stepper(
+                                    value = draft.maxParallel,
+                                    min = AppSettings.MIN_PARALLEL,
+                                    max = AppSettings.MAX_PARALLEL,
+                                    onChange = { draft = draft.copy(maxParallel = it) }
+                                )
+                            }
                         }
-                        SettingDivider()
-                        SettingRow(
-                            title = SettingNames.DOWNLOAD_FOLDER,
-                            subtitle = SaveLocation.folderPath(draft.downloadFolder)
-                        ) {
-                            PillButton(
-                                "Change",
-                                onClick = {
-                                    runCatching { folderLauncher.launch(null) }
-                                        .onFailure { showMessage("No folder picker found on this phone") }
-                                },
-                                small = true
+
+                        SettingSection("Network and alerts")
+                        SettingGroup {
+                            SettingRow(title = SettingNames.WIFI_ONLY, subtitle = "Never use mobile data") {
+                                GlassSwitch(draft.wifiOnly) { draft = draft.copy(wifiOnly = it) }
+                            }
+                            SettingDivider()
+                            SettingRow(title = SettingNames.NOTIFICATIONS, subtitle = "When finished or failed") {
+                                GlassSwitch(draft.notifications) { draft = draft.copy(notifications = it) }
+                            }
+                        }
+
+                        SettingSection("Updates")
+                        SettingGroup {
+                            UpdateSettingsRow(
+                                state = updateState,
+                                configured = updatesConfigured,
+                                onCheck = onCheckUpdate,
+                                onOpen = onOpenUpdate,
+                                onInstall = onInstallUpdate
                             )
                         }
-                        SettingDivider()
-                        SettingRow(title = SettingNames.MAX_PARALLEL, subtitle = "Files at the same time") {
-                            Stepper(
-                                value = draft.maxParallel,
-                                min = AppSettings.MIN_PARALLEL,
-                                max = AppSettings.MAX_PARALLEL,
-                                onChange = { draft = draft.copy(maxParallel = it) }
-                            )
                         }
+                        Spacer(Modifier.height(gap))
+                        DeveloperCredit(Modifier.onSizeChanged { creditPx = it.height })
+                        Spacer(Modifier.height(gap))
                     }
-
-                    SettingSection("Network and alerts")
-                    SettingGroup {
-                        SettingRow(title = SettingNames.WIFI_ONLY, subtitle = "Never use mobile data") {
-                            GlassSwitch(draft.wifiOnly) { draft = draft.copy(wifiOnly = it) }
-                        }
-                        SettingDivider()
-                        SettingRow(title = SettingNames.NOTIFICATIONS, subtitle = "When finished or failed") {
-                            GlassSwitch(draft.notifications) { draft = draft.copy(notifications = it) }
-                        }
-                    }
-
-                    SettingSection("Updates")
-                    SettingGroup {
-                        UpdateSettingsRow(
-                            state = updateState,
-                            configured = updatesConfigured,
-                            onCheck = onCheckUpdate,
-                            onOpen = onOpenUpdate,
-                            onInstall = onInstallUpdate
-                        )
-                    }
-
                 }
 
-                DeveloperCredit(Modifier.navigationBarsPadding().padding(top = 8.dp, bottom = 14.dp))
             }
         }
     }
