@@ -248,8 +248,10 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     val updateState: StateFlow<UpdateState> = updates.state
     val updatesConfigured: Boolean get() = updates.isConfigured
 
-    val downloads: StateFlow<List<DownloadItem>> =
-        repo.downloads.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    // null = the list is still being read from the database (so the screen shows nothing yet,
+    // instead of flashing "No downloads yet" for a moment).
+    val downloads: StateFlow<List<DownloadItem>?> =
+        repo.downloads.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // After add / resume the foreground service keeps the download alive in the background.
     fun add(url: String, fileName: String? = null) {
@@ -322,7 +324,9 @@ private fun MainScreen(
     vm: MainViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val downloads by vm.downloads.collectAsStateWithLifecycle()
+    val loadedDownloads by vm.downloads.collectAsStateWithLifecycle()
+    val listLoaded = loadedDownloads != null
+    val downloads = loadedDownloads ?: emptyList()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val network by vm.network.collectAsStateWithLifecycle()
     val updateState by vm.updateState.collectAsStateWithLifecycle()
@@ -428,6 +432,7 @@ private fun MainScreen(
                 updatePending = updateState is UpdateState.Available ||
                     updateState is UpdateState.Downloading ||
                     updateState is UpdateState.ReadyToInstall,
+                loaded = listLoaded,
                 selectedCount = selected.size,
                 allSelected = visible.isNotEmpty() && selected.size == visible.size,
                 onExitSelection = { selected = emptySet() },
@@ -460,7 +465,9 @@ private fun MainScreen(
                 )
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (downloads.isEmpty()) {
+                if (!listLoaded) {
+                    // still reading the list: show nothing for a moment
+                } else if (downloads.isEmpty()) {
                     EmptyState(Modifier.align(Alignment.Center))
                 } else if (visible.isEmpty()) {
                     EmptyListMessage(filter, query, Modifier.align(Alignment.Center))
@@ -661,6 +668,7 @@ private fun Header(
     onClearFinished: () -> Unit,
     onSettings: () -> Unit,
     updatePending: Boolean = false,
+    loaded: Boolean = true,
     selectedCount: Int = 0,
     allSelected: Boolean = false,
     onExitSelection: () -> Unit = {},
@@ -680,7 +688,7 @@ private fun Header(
                 onDelete = onDeleteSelected
             )
         } else {
-            NormalHeader(downloads, searchOpen, onSearch, onPauseAll, onClearFinished, onSettings, updatePending)
+            NormalHeader(downloads, searchOpen, onSearch, onPauseAll, onClearFinished, onSettings, updatePending, loaded)
         }
     }
 }
@@ -727,13 +735,15 @@ private fun NormalHeader(
     onPauseAll: () -> Unit,
     onClearFinished: () -> Unit,
     onSettings: () -> Unit,
-    updatePending: Boolean = false
+    updatePending: Boolean = false,
+    loaded: Boolean = true
 ) {
     val c = Downly.colors
     val active = downloads.count { it.isActive }
     val finished = downloads.count { !it.isActive && it.state != DownloadState.PAUSED }
     val speed = downloads.sumOf { it.speedBytesPerSec }
     val subtitle = when {
+        !loaded -> ""
         active > 0 -> "$active active · ${formatSpeed(speed)}"
         downloads.isEmpty() -> "No downloads yet"
         else -> "${downloads.size} in your list"
