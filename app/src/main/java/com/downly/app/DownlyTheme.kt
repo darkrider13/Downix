@@ -1,6 +1,20 @@
 package com.downly.app
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -498,6 +512,124 @@ internal fun GlassDialog(onDismiss: () -> Unit, content: @Composable ColumnScope
                 content = content
             )
         }
+    }
+}
+
+
+/**
+ * Bottom sheet from the design: glass, margin 8, radius 24, drag handle 36x4, slides up in 300 ms.
+ * Dark scrim behind it (c.scrim); tap outside or Back closes it. Moves above the keyboard.
+ */
+@Composable
+internal fun GlassBottomSheet(
+    onDismiss: () -> Unit,
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val c = Downly.colors
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        // The scrim is drawn by us, so switch off the window's own dim.
+        val view = LocalView.current
+        SideEffect {
+            (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
+        }
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { shown = true }
+        val scrimAlpha by animateFloatAsState(if (shown) 1f else 0f, tween(300), label = "sheetScrim")
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(c.scrim.copy(alpha = c.scrim.alpha * scrimAlpha))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                ),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            AnimatedVisibility(
+                visible = shown,
+                enter = slideInVertically(tween(300, easing = FastOutSlowInEasing)) { it }
+            ) {
+                Column(
+                    Modifier
+                        .navigationBarsPadding()
+                        .imePadding()
+                        .padding(8.dp)
+                        .widthIn(max = 480.dp)
+                        .fillMaxWidth()
+                        .glass(RoundedCornerShape(24.dp), strong = true)
+                        // swallow taps so they do not reach the scrim
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        )
+                        .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 16.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    Box(
+                        Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .size(width = 36.dp, height = 4.dp)
+                            .clip(CircleShape)
+                            .background(c.textSecondary.copy(alpha = 0.55f))
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Text(title, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(12.dp))
+                    content()
+                }
+            }
+        }
+    }
+}
+
+/** Single-line glass input, height 44, radius 12 (design: "File link"). */
+@Composable
+internal fun GlassField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    isError: Boolean = false,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    focusRequester: FocusRequester? = null,
+    trailing: (@Composable () -> Unit)? = null
+) {
+    val c = Downly.colors
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(shape)
+            .background(c.glassFill, shape)
+            .border(1.dp, if (isError) c.red else c.glassBorder, shape)
+            .padding(start = 14.dp, end = if (trailing != null) 2.dp else 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (value.isEmpty()) {
+                Text(placeholder, color = c.textSecondary, fontSize = 13.sp, maxLines = 1)
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = TextStyle(color = c.text, fontSize = 13.sp),
+                cursorBrush = SolidColor(c.text),
+                keyboardOptions = keyboardOptions,
+                keyboardActions = keyboardActions,
+                modifier = if (focusRequester != null) Modifier.fillMaxWidth().focusRequester(focusRequester) else Modifier.fillMaxWidth()
+            )
+        }
+        if (trailing != null) trailing()
     }
 }
 

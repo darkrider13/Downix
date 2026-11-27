@@ -12,15 +12,18 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.DisposableEffect
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -111,6 +114,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -372,6 +376,9 @@ private fun MainScreen(
     val visible = remember(downloads, filter, query) { applyListTools(downloads, filter, query) }
     val detailsItem = downloads.firstOrNull { it.id == detailsId }
     var showAdd by remember { mutableStateOf(false) }
+    var menuOpen by rememberSaveable { mutableStateOf(false) }
+    val clipboardManager = LocalClipboardManager.current
+    val menuBlur by animateFloatAsState(if (menuOpen) 10f else 0f, tween(200), label = "menuBlur")
     var addInitial by remember { mutableStateOf("") }
     var confirmCancel by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmRemove by remember { mutableStateOf<DownloadItem?>(null) }
@@ -411,7 +418,7 @@ private fun MainScreen(
     }
 
     DownlyBackground {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(Modifier.fillMaxSize().blur(menuBlur.dp).statusBarsPadding()) {
             Header(
                 downloads = downloads,
                 searchOpen = searchOpen,
@@ -491,14 +498,26 @@ private fun MainScreen(
             }
         }
 
-        AddButton(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(end = 16.dp, bottom = 18.dp),
-            onClick = {
+        PlusMenu(
+            expanded = menuOpen,
+            onToggle = { menuOpen = !menuOpen },
+            onClose = { menuOpen = false },
+            onAddLink = {
+                menuOpen = false
                 addInitial = ""
                 showAdd = true
+            },
+            onFromClipboard = {
+                menuOpen = false
+                // Same clipboard logic as the Add dialog: find a web link in the copied text.
+                val copied = runCatching { clipboardManager.getText()?.text }.getOrNull()
+                val link = copied?.let { extractLink(it) }
+                if (link != null) {
+                    addInitial = link
+                    showAdd = true
+                } else {
+                    Toast.makeText(context, "No link found on the clipboard", Toast.LENGTH_SHORT).show()
+                }
             }
         )
     }
@@ -678,17 +697,117 @@ private fun EmptyState(modifier: Modifier = Modifier) {
     }
 }
 
-/** 56 dp white circle with a black "+" (no text). */
+/**
+ * Plus button + animated menu (design: plus-menu).
+ * Closed: 56 white circle with a black "+". Open: "+" turns 45 degrees into "x" (250 ms), overlay fades in (200 ms),
+ * and two options rise above it: "Add link" (bottom) and "From clipboard" (above), the second 60 ms later.
+ */
 @Composable
-private fun AddButton(modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun BoxScope.PlusMenu(
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onClose: () -> Unit,
+    onAddLink: () -> Unit,
+    onFromClipboard: () -> Unit
+) {
+    val c = Downly.colors
+    BackHandler(enabled = expanded, onBack = onClose)
+
+    AnimatedVisibility(
+        visible = expanded,
+        enter = fadeIn(tween(200)),
+        exit = fadeOut(tween(200))
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(c.plusOverlay)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClose
+                )
+        )
+    }
+
+    Column(
+        Modifier
+            .align(Alignment.BottomEnd)
+            .navigationBarsPadding()
+            .padding(end = 21.dp, bottom = 88.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        PlusMenuOption("From clipboard", DownlyIcons.Clipboard, expanded, delayMs = 60, onClick = onFromClipboard)
+        PlusMenuOption("Add link", DownlyIcons.Link, expanded, delayMs = 0, onClick = onAddLink)
+    }
+
+    val rotation by animateFloatAsState(if (expanded) 45f else 0f, tween(250), label = "plusRotation")
     Box(
-        modifier
+        Modifier
+            .align(Alignment.BottomEnd)
+            .navigationBarsPadding()
+            .padding(end = 16.dp, bottom = 18.dp)
             .size(56.dp)
-            .pressable(onClick = onClick)
+            .pressable(onClick = onToggle)
             .whiteButton(CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        Icon(DownlyIcons.Plus, contentDescription = "Add download", tint = Color.Black, modifier = Modifier.size(26.dp))
+        Icon(
+            DownlyIcons.Plus,
+            contentDescription = if (expanded) "Close menu" else "Add download",
+            tint = Color.Black,
+            modifier = Modifier.size(26.dp).graphicsLayer { rotationZ = rotation }
+        )
+    }
+}
+
+/** One menu row: glass label chip (radius 12) + 46 white circle icon. Rises 18 and scales from 0.8 with a small bounce (260 ms). */
+@Composable
+private fun PlusMenuOption(
+    label: String,
+    icon: ImageVector,
+    visible: Boolean,
+    delayMs: Int,
+    onClick: () -> Unit
+) {
+    val c = Downly.colors
+    val progress by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(260, delayMillis = delayMs, easing = CubicBezierEasing(0.34f, 1.56f, 0.64f, 1f)),
+        label = "menuOption"
+    )
+    if (progress <= 0.001f && !visible) return
+    Row(
+        Modifier.graphicsLayer {
+            alpha = progress.coerceIn(0f, 1f)
+            translationY = (1f - progress) * 18.dp.toPx()
+            scaleX = 0.8f + 0.2f * progress
+            scaleY = 0.8f + 0.2f * progress
+            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0.5f)
+        },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .pressable(enabled = visible, onClick = onClick)
+                .glass(RoundedCornerShape(12.dp), strong = true)
+                .heightIn(min = 36.dp)
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(label, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.width(12.dp))
+        Box(
+            Modifier
+                .size(46.dp)
+                .pressable(enabled = visible, onClick = onClick)
+                .whiteButton(CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = label, tint = Color.Black, modifier = Modifier.size(20.dp))
+        }
     }
 }
 
@@ -966,13 +1085,9 @@ private fun AddLinkDialog(
         }
     }
 
-    GlassDialog(onDismiss) {
-        Text("Add download", color = Downly.colors.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(4.dp))
-        Text("Paste a direct link to the file you want.", color = Downly.colors.textSecondary, fontSize = 14.sp)
-        Spacer(Modifier.height(18.dp))
-
-        OutlinedTextField(
+    GlassBottomSheet(onDismiss = onDismiss, title = "Add link") {
+        val c = Downly.colors
+        GlassField(
             value = text,
             onValueChange = {
                 text = it
@@ -980,19 +1095,14 @@ private fun AddLinkDialog(
                 duplicate = null
                 probe = null
             },
-            modifier = Modifier.fillMaxWidth().focusRequester(focus),
-            placeholder = { Text("https://example.com/file.zip") },
+            placeholder = "File link",
             isError = showError,
-            maxLines = 3,
-            shape = RoundedCornerShape(18.dp),
+            focusRequester = focus,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
-            trailingIcon = {
-                Icon(
-                    Icons.Rounded.ContentPaste,
-                    contentDescription = "Paste from clipboard",
-                    tint = Downly.colors.text,
-                    modifier = Modifier
-                        .padding(end = 4.dp)
+            trailing = {
+                Box(
+                    Modifier
+                        .size(40.dp)
                         .clip(CircleShape)
                         .clickable {
                             clipboard.getText()?.text?.let {
@@ -1001,47 +1111,48 @@ private fun AddLinkDialog(
                                 duplicate = null
                                 probe = null
                             }
-                        }
-                        .padding(10.dp)
-                        .size(22.dp)
-                )
-            },
-            colors = glassFieldColors()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        DownlyIcons.Clipboard,
+                        contentDescription = "Paste from clipboard",
+                        tint = c.text,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         )
         if (showError) {
-            Spacer(Modifier.height(8.dp))
-            Text("That doesn't look like a valid link. Check it and try again.", color = Downly.colors.red, fontSize = 13.sp)
+            Spacer(Modifier.height(6.dp))
+            Text("That doesn't look like a valid link. Check it and try again.", color = c.red, fontSize = 11.sp)
         }
 
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
+        Spacer(Modifier.height(10.dp))
+        GlassField(
             value = name,
             onValueChange = { name = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("File name (optional)") },
-            singleLine = true,
-            shape = RoundedCornerShape(18.dp),
+            placeholder = "File name (optional)",
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { if (canDownload) submit() else connect() }),
-            colors = glassFieldColors()
+            keyboardActions = KeyboardActions(onGo = { if (canDownload) submit() else connect() })
         )
 
         duplicate?.let { existing ->
-            Spacer(Modifier.height(12.dp))
-            Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(16.dp)).padding(12.dp)) {
-                Text("Already in your list", color = Downly.colors.paused, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(10.dp))
+            Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(14.dp)).padding(12.dp)) {
+                Text("Already in your list", color = c.paused, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(2.dp))
                 Text(
                     "${existing.fileName.ifBlank { "This link" }}, ${stateLabel(existing).lowercase()}",
-                    color = Downly.colors.textSecondary,
-                    fontSize = 13.sp,
+                    color = c.textSecondary,
+                    fontSize = 11.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             PillButton(
                 text = when {
@@ -1050,7 +1161,7 @@ private fun AddLinkDialog(
                     else -> "Connect"
                 },
                 onClick = { connect() },
-                primary = false,
+                small = true,
                 enabled = !checking && text.isNotBlank()
             )
             Spacer(Modifier.width(12.dp))
@@ -1058,46 +1169,45 @@ private fun AddLinkDialog(
             when {
                 checking -> {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp,
-                        color = Downly.colors.text
+                        color = c.text
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("Checking the link...", color = Downly.colors.textSecondary, fontSize = 13.sp)
+                    Text("Checking the link...", color = c.textSecondary, fontSize = 11.sp)
                 }
                 result != null -> {
                     val color = when (result.status) {
-                        ProbeStatus.OK -> Downly.colors.green
-                        ProbeStatus.WARN -> Downly.colors.paused
-                        ProbeStatus.FAIL -> Downly.colors.red
+                        ProbeStatus.OK -> c.green
+                        ProbeStatus.WARN -> c.paused
+                        ProbeStatus.FAIL -> c.red
                     }
-                    Box(Modifier.size(12.dp).clip(CircleShape).background(color))
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(color))
                     Spacer(Modifier.width(8.dp))
-                    Text(result.message, color = color, fontSize = 13.sp)
+                    Text(result.message, color = color, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 }
-                else -> Text("Tap Connect to check the link first.", color = Downly.colors.textSecondary, fontSize = 13.sp)
+                else -> Text("Tap Connect to check the link first.", color = c.textSecondary, fontSize = 11.sp)
             }
         }
 
-        Spacer(Modifier.height(18.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            PillButton("Cancel", onClick = onDismiss, primary = false)
-            Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Cancel", onClick = onDismiss, outlineRed = true, modifier = Modifier.weight(1f))
             if (duplicate != null) {
                 PillButton(
                     "Download again",
                     onClick = { submit(skipDuplicateCheck = true) },
-                    icon = Icons.Rounded.Download,
                     enabled = canDownload,
-                    green = true
+                    green = true,
+                    modifier = Modifier.weight(1f)
                 )
             } else {
                 PillButton(
                     "Download",
                     onClick = { submit() },
-                    icon = Icons.Rounded.Download,
                     enabled = canDownload,
-                    green = true
+                    green = true,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
