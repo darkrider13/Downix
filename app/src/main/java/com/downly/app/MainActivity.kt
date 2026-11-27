@@ -377,7 +377,7 @@ private fun MainScreen(
         if (needed.isNotEmpty()) permissionLauncher.launch(needed.toTypedArray())
     }
 
-    DownlyBackground {
+    DownlyBackground(Modifier.blurWhen(PopupLayers.count > 0)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Header(
                 downloads = downloads,
@@ -1359,7 +1359,7 @@ private fun SettingsScreen(
                         Column(Modifier.onSizeChanged { contentPx = it.height }.padding(bottom = 8.dp)) {
                         SettingSection("General", first = true)
                         SettingGroup {
-                            SettingRow(title = SettingNames.THEME, subtitle = "Day or AMOLED dark") {
+                            SettingRow(title = SettingNames.THEME, subtitle = "") {
                                 ThemeSegmented(draft.themeMode) { draft = draft.copy(themeMode = it) }
                             }
                             SettingDivider()
@@ -1455,7 +1455,7 @@ internal fun SettingRow(title: String, subtitle: String, control: @Composable ()
     ) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
             Text(title, color = Downly.colors.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            Text(
+            if (subtitle.isNotEmpty()) Text(
                 subtitle,
                 color = Downly.colors.textSecondary,
                 fontSize = 11.sp,

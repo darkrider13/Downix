@@ -12,7 +12,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalDensity
@@ -275,10 +279,10 @@ private fun DrawScope.glow(color: Color, cxFrac: Float, cyFrac: Float, rxDp: Flo
 }
 
 @Composable
-fun DownlyBackground(content: @Composable BoxScope.() -> Unit) {
+fun DownlyBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     val c = Downly.colors
     Box(
-        Modifier
+        modifier
             .fillMaxSize()
             .background(c.background)
             .drawBehind {
@@ -540,13 +544,16 @@ internal fun PillButton(
 @Composable
 internal fun ThemeSegmented(selected: ThemeMode, onSelect: (ThemeMode) -> Unit) {
     val c = Downly.colors
+    // Auto is gone from the choices; a phone still on the old Auto setting shows the mode it is following.
+    val systemDark = isSystemInDarkTheme()
+    val shown = if (selected == ThemeMode.AUTO) (if (systemDark) ThemeMode.DARK else ThemeMode.DAY) else selected
     val shape = RoundedCornerShape(18.dp)
     Row(
         Modifier.glass(shape).padding(2.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        ThemeMode.values().forEach { mode ->
-            val on = mode == selected
+        ThemeMode.values().filter { it != ThemeMode.AUTO }.forEach { mode ->
+            val on = mode == shown
             val pill = RoundedCornerShape(15.dp)
             Box(
                 Modifier
@@ -596,17 +603,45 @@ internal fun GlassDialog(onDismiss: () -> Unit, content: @Composable ColumnScope
 
 
 /**
- * Call inside a Dialog's content. Makes the dialog window cover the WHOLE screen (under the status bar and
- * the navigation bar too), so the scrim darkens them together with the app and they never look separate.
- * On Android 12+ it also blurs whatever is behind the popup using the system's window blur: it runs in the
- * compositor, so it costs the app almost nothing. [strength] is 0..1 and drives the blur while the popup
- * opens / closes. A popup opened above another popup blurs that popup as well. Older phones (or phones with
- * blur switched off) simply get the dark scrim.
+ * Which popups are open right now. Every popup registers itself here, so the app screen can blur while any
+ * popup is open, and a popup that has ANOTHER popup opened above it blurs too.
+ */
+internal object PopupLayers {
+    var count by mutableIntStateOf(0)
+}
+
+/**
+ * Blur used behind popups. It is a GPU RenderEffect on the layer (Android 12+; older phones just keep the dark
+ * scrim). [active] fades the blur in and out; the value is read only while drawing, so nothing recomposes.
+ */
+internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 10.dp): Modifier = composed {
+    val strength = animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = tween(if (active) 240 else 160),
+        label = "popupBlur"
+    )
+    val maxPx = with(LocalDensity.current) { maxRadius.toPx() }
+    this.graphicsLayer {
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            val r = strength.value * maxPx
+            renderEffect = if (r > 0.5f) BlurEffect(r, r, TileMode.Clamp) else null
+        }
+    }
+}
+
+/**
+ * Call inside a Dialog's content. Registers the popup in [PopupLayers] and returns whether another popup is
+ * open above this one (then this popup should blur). It also makes the dialog window cover the WHOLE screen,
+ * under the status bar and navigation bar too, so the scrim darkens them together with the app.
  */
 @Composable
-internal fun DialogWindowEffects(strength: () -> Float) {
+internal fun rememberPopupCovered(): Boolean {
+    val level = remember { Snapshot.withoutReadObservation { PopupLayers.count } }
+    DisposableEffect(Unit) {
+        PopupLayers.count++
+        onDispose { PopupLayers.count-- }
+    }
     val view = LocalView.current
-    val density = LocalDensity.current
     val window = (view.parent as? DialogWindowProvider)?.window
     SideEffect {
         window?.apply {
@@ -631,19 +666,7 @@ internal fun DialogWindowEffects(strength: () -> Float) {
             }
         }
     }
-    if (android.os.Build.VERSION.SDK_INT >= 31 && window != null) {
-        LaunchedEffect(window) {
-            val maxRadius = with(density) { 14.dp.toPx() }
-            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-            var last = -1
-            snapshotFlow { (strength().coerceIn(0f, 1f) * maxRadius).toInt() }.collect { radius ->
-                if (radius != last) {
-                    last = radius
-                    window.attributes = window.attributes.also { it.blurBehindRadius = radius }
-                }
-            }
-        }
-    }
+    return PopupLayers.count > level + 1
 }
 
 /**
@@ -731,13 +754,11 @@ internal fun GlassBottomSheet(
         onDismissRequest = closeAll,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
-        DialogWindowEffects {
-            val pulled = if (sheetH > 0f) (dragPx / sheetH).coerceIn(0f, 1f) else 0f
-            progress.value * (1f - pulled)
-        }
+        val covered = rememberPopupCovered()
         Box(
             Modifier
                 .fillMaxSize()
+                .blurWhen(covered)
                 .drawBehind {
                     val pulled = if (sheetH > 0f) (dragPx / sheetH).coerceIn(0f, 1f) else 0f
                     drawRect(c.scrim, alpha = (progress.value * (1f - pulled)).coerceIn(0f, 1f))
@@ -818,7 +839,7 @@ internal fun GlassCenterDialog(
     ) {
         // Starts after the first frame is ready (no jump), drives scrim + card from one value.
         val progress = remember { Animatable(0f) }
-        DialogWindowEffects { progress.value }
+        val covered = rememberPopupCovered()
         LaunchedEffect(Unit) {
             withFrameNanos { }
             progress.animateTo(1f, tween(190, easing = FastOutSlowInEasing))
@@ -826,6 +847,7 @@ internal fun GlassCenterDialog(
         Box(
             Modifier
                 .fillMaxSize()
+                .blurWhen(covered)
                 // read in the draw phase: the screen is not recomposed on every animation frame
                 .drawBehind { drawRect(c.scrim, alpha = progress.value) }
                 .clickable(
