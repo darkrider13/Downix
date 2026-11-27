@@ -211,7 +211,7 @@ val DownixDark = DownixColors(
     paused = Color(0xFF7A7A80),
     divider = White.copy(alpha = 0.10f),
     sheetFill = Color(0xFF1A1A1F), // fully solid: nothing behind a popup / toast shows through
-    scrim = Black.copy(alpha = 0.62f),
+    scrim = Black.copy(alpha = 0.70f),
     plusOverlay = Black.copy(alpha = 0.70f),
     whiteBorder = White,
     toggleOffTrack = White.copy(alpha = 0.14f),
@@ -237,7 +237,7 @@ val DownixDay = DownixColors(
     paused = Color(0xFF7D8594),
     divider = Color(0xFF101828).copy(alpha = 0.09f),
     sheetFill = Color(0xFFF8F9FD), // fully solid
-    scrim = Color(0xFF141828).copy(alpha = 0.38f),
+    scrim = Color(0xFF141828).copy(alpha = 0.46f),
     plusOverlay = Color(0xFFE8ECF8).copy(alpha = 0.52f),
     whiteBorder = Color(0xFF101828).copy(alpha = 0.16f),
     toggleOffTrack = Color(0xFF101828).copy(alpha = 0.10f),
@@ -934,23 +934,11 @@ internal object PopupLayers {
 }
 
 /**
- * Blur used behind popups. It is a GPU RenderEffect on the layer (Android 12+; older phones just keep the dark
- * scrim). [active] fades the blur in and out; the value is read only while drawing, so nothing recomposes.
+ * Popups no longer blur what is behind them: they only dim it with the dark scrim (the same look older Android
+ * versions always had). The function is kept (it does nothing) so every existing call site keeps working.
  */
-internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 10.dp): Modifier = composed {
-    val strength = animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = if (PopupLayers.instant > 0) snap() else tween(if (active) 240 else 70),
-        label = "popupBlur"
-    )
-    val maxPx = with(LocalDensity.current) { maxRadius.toPx() }
-    this.graphicsLayer {
-        if (android.os.Build.VERSION.SDK_INT >= 31) {
-            val r = strength.value * maxPx
-            renderEffect = if (r > 0.5f) BlurEffect(r, r, TileMode.Clamp) else null
-        }
-    }
-}
+@Suppress("UNUSED_PARAMETER")
+internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 10.dp): Modifier = this
 
 /**
  * Call inside a Dialog's content. Registers the popup in [PopupLayers] and returns whether another popup is
@@ -1008,7 +996,7 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
             // Without FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS the system paints the navigation bar area solid black as soon as
             // this popup window gets focus, so the blur + scrim stopped above it. Now the popup window draws the bar
-            // background itself (transparent), and the blurred app + scrim continue all the way down to the screen edge.
+            // background itself (transparent), and the dimmed app + scrim continue all the way down to the screen edge.
             @Suppress("DEPRECATION")
             clearFlags(
                 android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
