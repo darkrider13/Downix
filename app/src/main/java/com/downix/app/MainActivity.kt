@@ -22,6 +22,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.togetherWith
@@ -495,10 +497,7 @@ private fun MainScreen(
                                 onToggleSelect = {
                                     selected = if (item.id in selected) selected - item.id else selected + item.id
                                 },
-                                onLongPress = { if (item.id !in selected) selected = selected + item.id },
-                                modifier = Modifier.animateItemPlacement(
-                                    spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
-                                )
+                                onLongPress = { if (item.id !in selected) selected = selected + item.id }
                             )
                         }
                     }
@@ -550,8 +549,8 @@ private fun MainScreen(
         // drawn last, so a message is visible above the Settings screen too
         AnimatedVisibility(
             visible = toastText != null,
-            enter = fadeIn(tween(130)) + slideInVertically(tween(170)) { it / 4 },
-            exit = fadeOut(tween(110)),
+            enter = EnterTransition.None,
+            exit = ExitTransition.None,
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .navigationBarsPadding()
@@ -602,7 +601,8 @@ private fun MainScreen(
             fileName = item.fileName,
             onKeep = { confirmDeleteFile = null },
             onDelete = {
-                vm.deleteWithFile(item.id) { showToast(it) }
+                showToast("File deleted from phone")
+                vm.deleteWithFile(item.id) { if (it != "File deleted from phone") showToast(it) }
                 confirmDeleteFile = null
                 detailsId = null
             }
@@ -619,7 +619,8 @@ private fun MainScreen(
                 showToast("Removed from list")
             },
             onDeleteFile = {
-                vm.deleteWithFile(item.id) { showToast(it) }
+                showToast("File deleted from phone")
+                vm.deleteWithFile(item.id) { if (it != "File deleted from phone") showToast(it) }
                 confirmRemove = null
             }
         )
@@ -639,7 +640,8 @@ private fun MainScreen(
                     confirmBulk = false
                 },
                 onDeleteFiles = {
-                    vm.deleteManyWithFiles(chosen.map { it.id }) { showToast(it) }
+                    showToast("${chosen.size} deleted")
+                    vm.deleteManyWithFiles(chosen.map { it.id }) { if (it != "${chosen.size} deleted") showToast(it) }
                     selected = emptySet()
                     confirmBulk = false
                 }
@@ -654,6 +656,7 @@ private fun MainScreen(
             onCancelDownload = {
                 vm.remove(item.id)
                 confirmCancel = null
+                showToast("Download cancelled")
             }
         )
     }
@@ -1470,7 +1473,7 @@ private fun MorphActionButton(
 
 @Composable
 private fun ConfirmCancelDialog(fileName: String, onKeep: () -> Unit, onCancelDownload: () -> Unit) {
-    GlassBottomSheet(onDismiss = onKeep, title = "Cancel this download?") {
+    GlassBottomSheet(onDismiss = onKeep, title = "Cancel this download?", instant = true) {
         Text(
             "${fileName.ifBlank { "This file" }} will be removed and the part already downloaded will be deleted.",
             color = Downix.colors.textSecondary,
