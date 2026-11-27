@@ -187,6 +187,14 @@ Request from the user (screenshots): fix blur on Add link, centered popups, remo
 Notes: not compiled here (no SDK). If the update check still says "up to date", the GitHub repo may be private (releases/latest gives 404 to the app) or the release has no .apk asset.
 `UpdateSettingsRow` ("Check now") is unchanged. `SettingNames.AUTO_UPDATE_CHECK` and `AppSettings.autoUpdateCheck` no longer exist.
 
+## Round 3 (home buttons + progress bar + Add link) - ALL DONE
+| # | Step | Status |
+|---|------|--------|
+| R5 | "Add link" (from + menu) no longer auto-fills the clipboard link; "From clipboard" still fills it (MainScreen onFromClipboard sets addInitial). AddLinkDialog has no clipboard auto-fill any more (the paste button inside still works) | DONE |
+| R6 | Home buttons are icon only (no white circle): header pause-all, card Pause / Resume / Retry / Open use new `AnimatedIconButton` (DownlyTheme.kt): press squeeze + pause<->play icon swap animation (shrink out, bounce in). `GlassIconButton` is still used by the Settings stepper | DONE |
+| R7 | `GlassProgress` (MainActivity.kt) redone: 7 dp, glass fill (bar colour at 55 to 90 % opacity), light border, glossy top highlight, soft sheen gliding while downloading (param `active`), smoother 700 ms ease-out; unknown size = glass segment sliding | DONE |
+Not compiled here (no SDK). If `AnimatedContent` / `togetherWith` fail to compile, the Compose BOM is older than expected: replace `togetherWith` with `with` and add @OptIn(ExperimentalAnimationApi::class).
+
 ## Things to remember
 - Code has not been compiled yet (no network / Android SDK in the build sandbox); first real build happens when the user pushes to GitHub (Step 8 workflow)
 - Never regenerate or replace the signing key after users installed a build: every build must use the same key
