@@ -134,5 +134,4 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     // Background update check
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
 }
