@@ -21,7 +21,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
@@ -681,8 +684,8 @@ private fun BoxScope.PlusMenu(
 
     AnimatedVisibility(
         visible = expanded,
-        enter = fadeIn(tween(200)),
-        exit = fadeOut(tween(200))
+        enter = fadeIn(tween(160)),
+        exit = fadeOut(tween(80))
     ) {
         Box(
             Modifier
@@ -740,7 +743,11 @@ private fun PlusMenuOption(
     val c = Downly.colors
     val progress by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(260, delayMillis = delayMs, easing = CubicBezierEasing(0.34f, 1.56f, 0.64f, 1f)),
+        animationSpec = if (visible) {
+            tween(260, delayMillis = delayMs, easing = CubicBezierEasing(0.34f, 1.56f, 0.64f, 1f))
+        } else {
+            tween(80) // closing is quick, so a popup that opens right after it is not fighting the menu
+        },
         label = "menuOption"
     )
     if (progress <= 0.001f && !visible) return
@@ -1049,7 +1056,7 @@ private fun AddLinkDialog(
     val canDownload = probe?.status == ProbeStatus.OK || probe?.status == ProbeStatus.WARN
 
     LaunchedEffect(Unit) {
-        delay(250)
+        delay(200) // after the popup has finished opening, so the keyboard does not make it jump
         runCatching { focus.requestFocus() }
     }
 
@@ -1155,61 +1162,109 @@ private fun AddLinkDialog(
         }
 
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            PillButton(
-                text = when {
-                    checking -> "Connecting"
-                    probe != null -> "Connect again"
-                    else -> "Connect"
-                },
-                onClick = { connect() },
-                small = true,
-                enabled = !checking && text.isNotBlank()
-            )
-            Spacer(Modifier.width(12.dp))
-            val result = probe
-            when {
-                checking -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = c.text
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Checking the link...", color = c.textSecondary, fontSize = 11.sp)
-                }
-                result != null -> {
-                    val color = when (result.status) {
-                        ProbeStatus.OK -> c.green
-                        ProbeStatus.WARN -> c.paused
-                        ProbeStatus.FAIL -> c.red
+        // Status line: a short hint, the checking message, or the result of the check (fades between them).
+        Crossfade(targetState = checking to probe, animationSpec = tween(180), label = "linkStatus") { (isChecking, result) ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                when {
+                    isChecking -> Text("Checking the link...", color = c.textSecondary, fontSize = 11.sp)
+                    result != null -> {
+                        val color = when (result.status) {
+                            ProbeStatus.OK -> c.green
+                            ProbeStatus.WARN -> c.paused
+                            ProbeStatus.FAIL -> c.red
+                        }
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+                        Spacer(Modifier.width(8.dp))
+                        Text(result.message, color = color, fontSize = 11.sp, modifier = Modifier.weight(1f))
                     }
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(color))
-                    Spacer(Modifier.width(8.dp))
-                    Text(result.message, color = color, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                    else -> Text("Tap Connect to check the link first.", color = c.textSecondary, fontSize = 11.sp)
                 }
-                else -> Text("Tap Connect to check the link first.", color = c.textSecondary, fontSize = 11.sp)
             }
         }
 
         Spacer(Modifier.height(16.dp))
+        val actionMode = when {
+            checking -> ActionMode.CHECKING
+            canDownload -> ActionMode.READY
+            else -> ActionMode.CONNECT
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Cancel", onClick = onDismiss, outlineRed = true, modifier = Modifier.weight(1f))
-            if (duplicate != null) {
-                PillButton(
-                    "Download again",
-                    onClick = { submit(skipDuplicateCheck = true) },
-                    enabled = canDownload,
-                    green = true,
-                    modifier = Modifier.weight(1f)
-                )
-            } else {
-                PillButton(
-                    "Download",
-                    onClick = { submit() },
-                    enabled = canDownload,
-                    green = true,
-                    modifier = Modifier.weight(1f)
+            MorphActionButton(
+                mode = actionMode,
+                label = when (actionMode) {
+                    ActionMode.CHECKING -> "Connecting"
+                    ActionMode.READY -> if (duplicate != null) "Download again" else "Download"
+                    ActionMode.CONNECT -> if (probe != null) "Connect again" else "Connect"
+                },
+                enabled = when (actionMode) {
+                    ActionMode.CHECKING -> false
+                    ActionMode.READY -> true
+                    ActionMode.CONNECT -> text.isNotBlank()
+                },
+                onClick = {
+                    when (actionMode) {
+                        ActionMode.READY -> if (duplicate != null) submit(skipDuplicateCheck = true) else submit()
+                        else -> connect()
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+private enum class ActionMode { CONNECT, CHECKING, READY }
+
+/**
+ * One button that does two jobs in the Add link popup: it starts as a white "Connect", shows a small
+ * spinner while the link is checked, then turns green and becomes "Download". The colour fades and the
+ * label slides out / in, so the two never overlap or clash.
+ */
+@Composable
+private fun MorphActionButton(
+    mode: ActionMode,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val c = Downly.colors
+    val ready = mode == ActionMode.READY
+    val fill by animateColorAsState(if (ready) c.green else Color.White, tween(280), label = "actionFill")
+    val border by animateColorAsState(if (ready) c.green else c.whiteBorder, tween(280), label = "actionBorder")
+    val alpha by animateFloatAsState(if (enabled) 1f else 0.4f, tween(180), label = "actionAlpha")
+    Box(
+        modifier
+            .pressable(enabled = enabled, onClick = onClick)
+            .alpha(alpha)
+            .heightIn(min = 42.dp)
+            .clip(CircleShape)
+            .background(fill, CircleShape)
+            .border(1.dp, border, CircleShape)
+            .padding(horizontal = 18.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        AnimatedContent(
+            targetState = mode to label,
+            transitionSpec = {
+                (fadeIn(tween(180, delayMillis = 90)) + slideInVertically(tween(220, delayMillis = 60)) { it / 2 }) togetherWith
+                    (fadeOut(tween(90)) + slideOutVertically(tween(160)) { -it / 2 })
+            },
+            contentAlignment = Alignment.Center,
+            label = "actionLabel"
+        ) { (shownMode, shownLabel) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (shownMode == ActionMode.CHECKING) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.Black)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    shownLabel,
+                    color = if (shownMode == ActionMode.READY) c.onGreen else Color.Black,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
                 )
             }
         }

@@ -21,6 +21,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleOut
@@ -158,7 +160,7 @@ val DownlyDark = DownlyColors(
     track = White.copy(alpha = 0.14f),
     paused = Color(0xFF7A7A80),
     divider = White.copy(alpha = 0.10f),
-    sheetFill = Color(0xFF18181C).copy(alpha = 0.86f),
+    sheetFill = Color(0xFF1A1A1F), // fully solid: nothing behind a popup / toast shows through
     scrim = Black.copy(alpha = 0.62f),
     plusOverlay = Black.copy(alpha = 0.70f),
     whiteBorder = White,
@@ -182,7 +184,7 @@ val DownlyDay = DownlyColors(
     track = Color(0xFF101828).copy(alpha = 0.10f),
     paused = Color(0xFF7D8594),
     divider = Color(0xFF101828).copy(alpha = 0.09f),
-    sheetFill = Color(0xFFF8F9FD).copy(alpha = 0.93f),
+    sheetFill = Color(0xFFF8F9FD), // fully solid
     scrim = Color(0xFF141828).copy(alpha = 0.38f),
     plusOverlay = Color(0xFFE8ECF8).copy(alpha = 0.52f),
     whiteBorder = Color(0xFF101828).copy(alpha = 0.16f),
@@ -578,13 +580,13 @@ internal fun GlassBottomSheet(
         SideEffect {
             (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
         }
-        var shown by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { shown = true }
-        val scrimAlpha by animateFloatAsState(if (shown) 1f else 0f, tween(300), label = "sheetScrim")
+        val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
+        val scrim = remember { Animatable(0f) }
+        LaunchedEffect(Unit) { scrim.animateTo(1f, tween(220)) }
         Box(
             Modifier
                 .fillMaxSize()
-                .background(c.scrim.copy(alpha = c.scrim.alpha * scrimAlpha))
+                .drawBehind { drawRect(c.scrim, alpha = scrim.value) }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -593,8 +595,8 @@ internal fun GlassBottomSheet(
             contentAlignment = Alignment.BottomCenter
         ) {
             AnimatedVisibility(
-                visible = shown,
-                enter = slideInVertically(tween(300, easing = FastOutSlowInEasing)) { it }
+                visibleState = visibleState,
+                enter = slideInVertically(tween(240, easing = FastOutSlowInEasing)) { it }
             ) {
                 Column(
                     Modifier
@@ -652,13 +654,15 @@ internal fun GlassCenterDialog(
         SideEffect {
             (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
         }
-        var shown by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { shown = true }
-        val scrimAlpha by animateFloatAsState(if (shown) 1f else 0f, tween(200), label = "centerScrim")
+        // Starts in the very first frame (no extra frame waiting for a state change).
+        val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
+        val scrim = remember { Animatable(0f) }
+        LaunchedEffect(Unit) { scrim.animateTo(1f, tween(160)) }
         Box(
             Modifier
                 .fillMaxSize()
-                .background(c.scrim.copy(alpha = c.scrim.alpha * scrimAlpha))
+                // read in the draw phase: the screen is not recomposed on every animation frame
+                .drawBehind { drawRect(c.scrim, alpha = scrim.value) }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -670,10 +674,10 @@ internal fun GlassCenterDialog(
             contentAlignment = Alignment.Center
         ) {
             AnimatedVisibility(
-                visible = shown,
-                enter = fadeIn(tween(200)) + scaleIn(
-                    initialScale = 0.92f,
-                    animationSpec = tween(200, easing = FastOutSlowInEasing)
+                visibleState = visibleState,
+                enter = fadeIn(tween(140)) + scaleIn(
+                    initialScale = 0.94f,
+                    animationSpec = tween(170, easing = FastOutSlowInEasing)
                 )
             ) {
                 Column(
