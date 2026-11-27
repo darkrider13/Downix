@@ -456,7 +456,10 @@ private fun MainScreen(
     // Retry = download the same link again from the start. A finished file (or a download that already has data)
     // asks first: "Do you want to download this file again?"
     val cardRetry = remember<(DownloadItem) -> Unit>(vm) {
-        { item -> if (item.isCompleted || item.downloadedBytes > 0L) confirmRetry = item else vm.restart(item) }
+        { item ->
+            if (item.isCompleted || item.downloadedBytes > 0L || item.state == DownloadState.FAILED) confirmRetry = item
+            else vm.restart(item)
+        }
     }
     val cardOpen = remember<(String?) -> Unit>(context) { { uri -> openDownloaded(context, uri, latestShowToast) } }
     val cardDetails = remember<(Long) -> Unit> { { id -> detailsId = id } }
@@ -1231,9 +1234,10 @@ private fun DownloadCard(
                         icon = if (item.state == DownloadState.FAILED) DownixIcons.Retry else DownixIcons.Play,
                         description = if (item.state == DownloadState.FAILED) "Retry" else "Resume",
                         tint = c.text,
-                        onClick = { onResume(item.id) },
+                        // failed: Retry asks first ("download again from the beginning?"); paused / canceled: Resume
+                        onClick = { if (item.state == DownloadState.FAILED) onRetry(item) else onResume(item.id) },
                         enabled = !selectionMode,
-                        optimisticIcon = DownixIcons.Pause,
+                        optimisticIcon = if (item.state == DownloadState.FAILED) null else DownixIcons.Pause,
                         animateSwap = false
                     )
                 }
@@ -1697,6 +1701,8 @@ private fun ConfirmRetryDialog(item: DownloadItem, onNo: () -> Unit, onYes: () -
         Text(
             if (item.isCompleted) {
                 "${item.fileName.ifBlank { "This file" }} is already downloaded. Do you want to download this file again?"
+            } else if (item.state == DownloadState.FAILED) {
+                "${item.fileName.ifBlank { "This file" }} failed to download. Do you want to start the download again from the beginning?"
             } else {
                 "${item.fileName.ifBlank { "This file" }} will start again from the beginning. The part already downloaded will be deleted."
             },
