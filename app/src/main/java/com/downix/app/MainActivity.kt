@@ -299,7 +299,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     fun pauseAll() { viewModelScope.launch { repo.pauseAll() } }
     fun clearFinished() { viewModelScope.launch { repo.clearFinished() } }
 
-    /** Saves every changed setting at once (Settings > Apply). */
+    /** Saves the changed settings at once (every tap in Settings). */
     fun applySettings(new: AppSettings) {
         val old = settingsRepo.current
         if (new.maxParallel != old.maxParallel) settingsRepo.setMaxParallel(new.maxParallel)
@@ -1507,9 +1507,7 @@ private fun SettingsScreen(
 ) {
     val c = Downix.colors
     val context = LocalContext.current
-    // Changes stay here until the user taps Apply.
-    var draft by remember { mutableStateOf(settings) }
-    val dirty = draft != settings
+    // Every change is saved at once: no Apply button.
     val showMessage = onMessage
     BackHandler(onBack = onClose)
 
@@ -1517,7 +1515,7 @@ private fun SettingsScreen(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri != null) {
-            if (SaveLocation.keepAccess(context, uri)) draft = draft.copy(downloadFolder = uri.toString())
+            if (SaveLocation.keepAccess(context, uri)) onApply(settings.copy(downloadFolder = uri.toString()))
             else showMessage("Can't use this folder, choose another one")
         }
     }
@@ -1547,20 +1545,6 @@ private fun SettingsScreen(
                     Spacer(Modifier.width(6.dp))
                     Text("Settings", color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
-                    AnimatedVisibility(
-                        visible = dirty,
-                        enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.8f, animationSpec = tween(200)),
-                        exit = fadeOut(tween(120))
-                    ) {
-                        PillButton(
-                            "Apply",
-                            onClick = {
-                                onApply(draft) // the Apply button fades away by itself: no toast needed
-                            },
-                            small = true,
-                            modifier = Modifier.padding(end = 8.dp)
-                        )
-                    }
                 }
 
                 // The credit sits in the middle of the free space under the settings (or just after them
@@ -1583,12 +1567,12 @@ private fun SettingsScreen(
                         SettingSection("General", first = true)
                         SettingGroup {
                             SettingRow(title = SettingNames.THEME, subtitle = "") {
-                                ThemeSegmented(draft.themeMode) { draft = draft.copy(themeMode = it) }
+                                ThemeSegmented(settings.themeMode) { onApply(settings.copy(themeMode = it)) }
                             }
                             SettingDivider()
                             SettingRow(
                                 title = SettingNames.DOWNLOAD_FOLDER,
-                                subtitle = SaveLocation.folderPath(draft.downloadFolder)
+                                subtitle = SaveLocation.folderPath(settings.downloadFolder)
                             ) {
                                 PillButton(
                                     "Change",
@@ -1602,10 +1586,10 @@ private fun SettingsScreen(
                             SettingDivider()
                             SettingRow(title = SettingNames.MAX_PARALLEL, subtitle = "Files at the same time") {
                                 Stepper(
-                                    value = draft.maxParallel,
+                                    value = settings.maxParallel,
                                     min = AppSettings.MIN_PARALLEL,
                                     max = AppSettings.MAX_PARALLEL,
-                                    onChange = { draft = draft.copy(maxParallel = it) }
+                                    onChange = { onApply(settings.copy(maxParallel = it)) }
                                 )
                             }
                         }
@@ -1613,11 +1597,11 @@ private fun SettingsScreen(
                         SettingSection("Network and alerts")
                         SettingGroup {
                             SettingRow(title = SettingNames.WIFI_ONLY, subtitle = "Never use mobile data") {
-                                GlassSwitch(draft.wifiOnly) { draft = draft.copy(wifiOnly = it) }
+                                GlassSwitch(settings.wifiOnly) { onApply(settings.copy(wifiOnly = it)) }
                             }
                             SettingDivider()
                             SettingRow(title = SettingNames.NOTIFICATIONS, subtitle = "When finished or failed") {
-                                GlassSwitch(draft.notifications) { draft = draft.copy(notifications = it) }
+                                GlassSwitch(settings.notifications) { onApply(settings.copy(notifications = it)) }
                             }
                         }
 
