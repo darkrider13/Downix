@@ -610,6 +610,12 @@ private fun MainScreen(
         ) {
             DownixToast(text = toastText ?: lastToast)
         }
+
+        // Start-up: until the list is read from the database the screen stays one plain solid colour
+        // (same as the launch splash), so there is no half-drawn background flash. Then everything shows at once.
+        if (!listLoaded) {
+            Box(Modifier.fillMaxSize().background(Downix.colors.background))
+        }
     }
 
     if (showAdd) {
