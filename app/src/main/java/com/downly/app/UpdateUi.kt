@@ -58,15 +58,15 @@ internal fun UpdateBanner(state: UpdateState, onClick: () -> Unit) {
         Icon(Icons.Rounded.SystemUpdate, null, tint = Downly.colors.green, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = Downly.colors.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, color = Downly.colors.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             if (subtitle.isNotEmpty()) {
-                Text(subtitle, color = Downly.colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, color = Downly.colors.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
 
-/** The update popup: what is new, then Update now -> progress -> Install. */
+/** The update sheet: what is new, then Update now -> progress -> Install. */
 @Composable
 internal fun UpdateDialog(
     state: UpdateState,
@@ -74,105 +74,91 @@ internal fun UpdateDialog(
     onInstall: () -> Unit,
     onClose: () -> Unit
 ) {
+    val c = Downly.colors
     val info = state.info()
-    GlassDialog(onClose) {
+    val title = when {
+        info == null -> "Downly is up to date"
+        state is UpdateState.ReadyToInstall -> "Ready to install"
+        state is UpdateState.Downloading -> "Downloading update"
+        state is UpdateState.Error -> "Update problem"
+        else -> "Update available"
+    }
+    GlassBottomSheet(onDismiss = onClose, title = title) {
         if (info == null) {
-            Text("Downly is up to date", color = Downly.colors.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            Text("You have version ${BuildConfig.VERSION_NAME}.", color = Downly.colors.textSecondary, fontSize = 14.sp)
-            Spacer(Modifier.height(18.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                PillButton("Done", onClick = onClose)
-            }
-            return@GlassDialog
+            Text("You have version ${BuildConfig.VERSION_NAME}.", color = c.textSecondary, fontSize = 13.sp)
+            Spacer(Modifier.height(16.dp))
+            PillButton("Done", onClick = onClose, modifier = Modifier.fillMaxWidth())
+            return@GlassBottomSheet
         }
 
-        val title = when (state) {
-            is UpdateState.ReadyToInstall -> "Ready to install"
-            is UpdateState.Downloading -> "Downloading update"
-            is UpdateState.Error -> "Update problem"
-            else -> "Update available"
-        }
-        Text(title, color = Downly.colors.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(6.dp))
         val size = if (info.apkSize > 0) "  |  ${formatBytes(info.apkSize)}" else ""
-        Text(
-            "Downly ${info.versionName}$size",
-            color = Downly.colors.text,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Text("You have ${BuildConfig.VERSION_NAME}", color = Downly.colors.textSecondary, fontSize = 13.sp)
+        Text("Downly ${info.versionName}$size", color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text("You have ${BuildConfig.VERSION_NAME}", color = c.textSecondary, fontSize = 11.sp)
 
         if (info.notes.isNotBlank()) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             Text(
                 info.notes,
-                color = Downly.colors.text,
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
+                color = c.text,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
                 maxLines = 8,
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(16.dp))
 
         when (state) {
             is UpdateState.Downloading -> {
                 GlassProgress(
                     progress = state.progress,
                     indeterminate = !state.hasKnownSize,
-                    color = Downly.colors.greenBar
+                    color = c.greenBar
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Downloading ${percentText(state)}. You can close this, it continues in the background.",
-                    color = Downly.colors.textSecondary,
-                    fontSize = 13.sp
+                    color = c.textSecondary,
+                    fontSize = 11.sp
                 )
                 Spacer(Modifier.height(14.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    PillButton("Close", onClick = onClose, primary = false)
-                }
+                PillButton("Close", onClick = onClose, modifier = Modifier.fillMaxWidth())
             }
 
             is UpdateState.ReadyToInstall -> {
                 Text(
                     "Android will ask you to confirm. Your downloads and settings stay as they are.",
-                    color = Downly.colors.textSecondary,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp
+                    color = c.textSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
                 )
                 Spacer(Modifier.height(14.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    PillButton("Later", onClick = onClose, primary = false)
-                    Spacer(Modifier.width(10.dp))
-                    PillButton("Install", onClick = onInstall, small = true)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PillButton("Later", onClick = onClose, modifier = Modifier.weight(1f))
+                    PillButton("Install", onClick = onInstall, modifier = Modifier.weight(1f))
                 }
             }
 
             is UpdateState.Error -> {
-                Text(state.message, color = Downly.colors.red, fontSize = 14.sp, lineHeight = 19.sp)
+                Text(state.message, color = c.red, fontSize = 12.sp, lineHeight = 17.sp)
                 Spacer(Modifier.height(14.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    PillButton("Close", onClick = onClose, primary = false)
-                    Spacer(Modifier.width(10.dp))
-                    PillButton("Try again", onClick = onDownload)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PillButton("Close", onClick = onClose, modifier = Modifier.weight(1f))
+                    PillButton("Try again", onClick = onDownload, modifier = Modifier.weight(1f))
                 }
             }
 
             else -> {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    PillButton("Later", onClick = onClose, primary = false)
-                    Spacer(Modifier.width(10.dp))
-                    PillButton("Update now", onClick = onDownload)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PillButton("Later", onClick = onClose, modifier = Modifier.weight(1f))
+                    PillButton("Update now", onClick = onDownload, modifier = Modifier.weight(1f))
                 }
             }
         }
     }
 }
 
-/** "Check for updates" row inside the Settings popup. */
+/** "Check now" row inside the Settings screen. */
 @Composable
 internal fun UpdateSettingsRow(
     state: UpdateState,

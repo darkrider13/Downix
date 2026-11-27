@@ -135,33 +135,32 @@ private fun FilterPill(label: String, count: Int, selected: Boolean, onClick: ()
 
 @Composable
 internal fun SearchField(query: String, onQueryChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    val c = Downly.colors
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    OutlinedTextField(
+    GlassField(
         value = query,
         onValueChange = onQueryChange,
-        modifier = modifier.fillMaxWidth().focusRequester(focus),
-        placeholder = { Text("Search name or link") },
-        singleLine = true,
-        shape = RoundedCornerShape(18.dp),
+        placeholder = "Search name or link",
+        modifier = modifier,
+        focusRequester = focus,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        leadingIcon = { Icon(Icons.Rounded.Search, null, tint = Downly.colors.text) },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
+        trailing = {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = query.isNotEmpty()) { onQueryChange("") },
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(
-                    Icons.Rounded.Close,
-                    contentDescription = "Clear search",
-                    tint = Downly.colors.textSecondary,
-                    modifier = Modifier
-                        .padding(end = 4.dp)
-                        .clip(CircleShape)
-                        .clickable { onQueryChange("") }
-                        .padding(8.dp)
-                        .size(20.dp)
+                    if (query.isNotEmpty()) DownlyIcons.Close else DownlyIcons.Search,
+                    contentDescription = if (query.isNotEmpty()) "Clear search" else "Search",
+                    tint = if (query.isNotEmpty()) c.text else c.textSecondary,
+                    modifier = Modifier.size(18.dp)
                 )
             }
-        },
-        colors = glassFieldColors()
+        }
     )
 }
 
@@ -200,15 +199,15 @@ internal fun EmptyListMessage(filter: DownloadFilter, query: String, modifier: M
         Text(
             if (searching) "No matches" else filter.emptyTitle,
             color = Downly.colors.text,
-            fontSize = 18.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold
         )
         Spacer(Modifier.height(6.dp))
         Text(
             if (searching) "Nothing in this list matches \"${query.trim()}\"." else filter.emptyHint,
             color = Downly.colors.textSecondary,
-            fontSize = 14.sp,
-            lineHeight = 20.sp,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
             textAlign = TextAlign.Center
         )
     }

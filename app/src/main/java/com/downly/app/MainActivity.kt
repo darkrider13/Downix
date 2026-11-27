@@ -182,6 +182,10 @@ class MainActivity : ComponentActivity() {
 
             // Status / navigation bar icons follow Day or Dark.
             DisposableEffect(dark) {
+                // Window colour behind the UI follows the chosen mode (no black flash in Day mode).
+                window.setBackgroundDrawable(
+                    android.graphics.drawable.ColorDrawable(if (dark) 0xFF000000.toInt() else 0xFFE8EEF5.toInt())
+                )
                 enableEdgeToEdge(
                     statusBarStyle = SystemBarStyle.auto(
                         android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT
@@ -1564,13 +1568,13 @@ private fun OfflineBanner() {
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Rounded.WifiOff, null, tint = Downly.colors.paused, modifier = Modifier.size(20.dp))
+        Icon(Icons.Rounded.WifiOff, null, tint = Downly.colors.paused, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(10.dp))
         Text(
             "No internet connection. Downloads continue when you are back online.",
             color = Downly.colors.text,
-            fontSize = 13.sp,
-            lineHeight = 18.sp
+            fontSize = 12.sp,
+            lineHeight = 17.sp
         )
     }
 }
