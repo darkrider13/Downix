@@ -23,12 +23,12 @@ Hand this file + the latest project zip + Downly_Design_AI.zip to any Claude. Re
 | # | Step | Status |
 |---|------|--------|
 | 1 | Theme foundation (Day / AMOLED Dark tokens, background glows, icons, shared buttons, theme setting) + Home screen (header, chips, cards, progress, white + button) | DONE |
-| 2 | Plus button animated menu (From clipboard / Add link, overlay, rotate to x) + "Add link" bottom sheet | PENDING |
+| 2 | Plus button animated menu (From clipboard / Add link, overlay, rotate to x) + "Add link" bottom sheet | DONE |
 | 3 | Delete bottom sheet ("Delete download?" + checkbox + Cancel / Delete) + toast pill ("File deleted from phone" / "Removed from list") + cancel-download and details dialogs restyled | PENDING |
 | 4 | Settings as a full screen (glass top bar with back arrow, white section pills, glass groups, segmented theme switch, custom 38x22 toggles, white Done button) | PENDING |
 | 5 | Final polish: update banner / update popup / offline banner / search field / empty states, last check of every screen against the PNGs, README + PROGRESS.md notes | PENDING |
 
-Progress: 1 of 5 steps done | 4 remaining | 20% done, 80% remaining.
+Progress: 2 of 5 steps done | 3 remaining | 40% done, 60% remaining.
 
 ## Step 1 notes (done)
 New file `DownlyTheme.kt` (package com.downly.app) holds everything shared:
@@ -62,14 +62,31 @@ MainActivity.kt (Step 1):
 DownloadTools.kt: new `FilterBar(items, filter, onFilter)` (chips "All 3", height 32, radius 16, gap 6; selected = white black bold), `glassFieldColors()` theme aware.
 UpdateUi.kt: colours mapped, `GlassProgress(progress, indeterminate, color)` new signature (flat colour).
 
-## Next: Step 2 (Plus menu + Add link sheet) - what to do
-- Plus tap: "+" rotates 45 degrees to "x" (250 ms), overlay `c.plusOverlay` fades in (200 ms) with light blur, two options above, right aligned, gap 14:
-  bottom "Add link" (DownlyIcons.Link), above it "From clipboard" (DownlyIcons.Clipboard). Each = glass label chip (radius 12, 13sp semibold, min height 36)
-  + 46 white circle icon. Animation: up 18 + scale from 0.8 with small bounce, 260 ms, second one delayed 60 ms. Tap overlay or "x" closes.
-  Options container: right 16, bottom 88. Close button stays at the same place as the + (56, right 16, bottom 18).
-- "From clipboard" = same as the existing clipboard-prefill logic in AddLinkDialog (do not change download logic).
-- Add link = glass bottom sheet (margin 8, radius 24, handle 36x4, slide up 300 ms, title 15sp bold, input labelled "File link", input height 44 glass radius 12,
-  buttons Cancel (outlineRed) + Download (green)). No title text is given in the design for this sheet: use "Add link". Keep the existing features: Connect / link check, optional file name, duplicate warning, "Download again".
+## Step 2 notes (done)
+DownlyTheme.kt (new shared pieces):
+- `GlassBottomSheet(onDismiss, title) { }`: Dialog, own scrim (`c.scrim`, window dim switched off), glass strong sheet, margin 8, radius 24, handle 36x4,
+  title 15sp bold, slides up 300 ms, above the keyboard (imePadding + navigationBarsPadding). Tap on scrim / Back closes it. USE THIS for the Delete sheet in Step 3.
+- `GlassField(value, onValueChange, placeholder, ..., focusRequester, trailing)`: single-line input, height 44, radius 12, glass fill + border (red border when isError).
+MainActivity.kt:
+- `AddButton` is replaced by `PlusMenu` (BoxScope) + `PlusMenuOption`. State `menuOpen` (rememberSaveable) lives in MainScreen.
+  "+" rotates 45 deg (250 ms) into "x"; overlay `c.plusOverlay` fades 200 ms; the list column gets `Modifier.blur(0..10dp)` (works on Android 12+, simply no blur below).
+  Options: container right 21 (centres the 46 circle on the 56 button), bottom 88, gap 14; "Add link" bottom, "From clipboard" above (60 ms later);
+  chip = glass strong radius 12, 13sp semibold, min height 36; circle 46 white. Bounce = cubic-bezier(.34,1.56,.64,1), 260 ms, up 18, scale from 0.8. Back button closes the menu.
+- "From clipboard": reads the clipboard, `extractLink()` (existing function); link found -> Add link sheet opens pre-filled; none -> Toast "No link found on the clipboard".
+- "Add link": opens the sheet empty (the old "suggest the clipboard link if the field is empty" still runs inside the sheet, feature kept).
+- `AddLinkDialog` now uses `GlassBottomSheet` (title "Add link"): "File link" field (+ clipboard paste icon), "File name (optional)" field, duplicate warning,
+  small white "Connect" pill + status text (link check), buttons side by side: Cancel (red outline) + Download (green; "Download again" when duplicate).
+  All logic (connect / probe / submit / duplicate check) is unchanged.
+- Not pixel-checked: no screenshot exists for the Add link sheet, it follows the text in PROMPT.md.
+
+## Next: Step 3 (Delete sheet + toast + cancel / details dialogs) - what to do
+- Delete sheet: use `GlassBottomSheet(title = "Delete download?")`. Subtitle "<file> will be removed from the list." (13sp, textSecondary). Glass row (radius 14) with checkbox 22 / radius 7:
+  unchecked = 2px gray border; checked = white box with black tick (DownlyIcons.Check). Text "Also delete the file from phone" 13sp + "This can't be undone" 11sp. Unchecked by default.
+  Buttons side by side: Cancel (outlineRed) + Delete (danger = red filled). Replaces the old `confirmRemove` dialog + `ConfirmDeleteFileDialog` flow for completed items
+  (keep the same ViewModel calls: vm.remove / vm.deleteWithFile). Day: sheet fill is `c.sheetFill`, checkbox row is a lighter glass row.
+- Toast: glass pill from the bottom, left 16, right 84 (leaves room for the + button), height 48, 28 white circle with black tick + 13sp text
+  "File deleted from phone" (checkbox ticked) or "Removed from list". Rises from the bottom, hides after 2.6 s.
+- Restyle `ConfirmCancelDialog` ("Cancel this download?") and `DetailsDialog` (DownloadTools.kt) with the same sheet look and button rules.
 
 ## Things to remember
 - Code never compiled here. First real build happens on GitHub (release.yml). If the user reports compile errors, fix those first.
