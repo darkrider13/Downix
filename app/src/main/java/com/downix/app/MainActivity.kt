@@ -91,6 +91,7 @@ import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.rememberUpdatedState
 import kotlin.math.abs
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -430,6 +431,20 @@ private fun MainScreen(
         }
     }
 
+    // Callbacks given to the cards are created ONCE here and take the id / item as a parameter. Before, every
+    // card got brand-new lambdas on each list update (every 400 ms while downloading), so ALL visible cards
+    // were redrawn and recomposed again and again, and the scroll stuttered. Now only the card that changed
+    // is recomposed.
+    val latestRequestRemove by rememberUpdatedState(requestRemove)
+    val latestShowToast by rememberUpdatedState(showToast)
+    val cardPause = remember<(Long) -> Unit>(vm) { { id -> vm.pause(id) } }
+    val cardResume = remember<(Long) -> Unit>(vm) { { id -> vm.resume(id) } }
+    val cardRemove = remember<(DownloadItem) -> Unit> { { item -> latestRequestRemove(item) } }
+    val cardOpen = remember<(String?) -> Unit>(context) { { uri -> openDownloaded(context, uri, latestShowToast) } }
+    val cardDetails = remember<(Long) -> Unit> { { id -> detailsId = id } }
+    val cardToggleSelect = remember<(Long) -> Unit> { { id -> selected = if (id in selected) selected - id else selected + id } }
+    val cardLongPress = remember<(Long) -> Unit> { { id -> if (id !in selected) selected = selected + id } }
+
     // A link shared from another app opens the add dialog with the link filled in.
     LaunchedEffect(sharedLink) {
         if (sharedLink != null) {
@@ -530,7 +545,7 @@ private fun MainScreen(
                         val listHeight = with(density) { (cardPx * 5 + gapPx * 4).toDp() }
                     LazyColumn(
                         state = listState,
-                        flingBehavior = rememberSmoothSnapFling(listState, cardPx + gapPx, (visible.size - 5).coerceAtLeast(0) * (cardPx + gapPx)),
+                        flingBehavior = rememberSnapFlingBehavior(listState),
                         modifier = Modifier.fillMaxWidth().height(listHeight),
                         contentPadding = PaddingValues(start = 12.dp, end = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -541,15 +556,13 @@ private fun MainScreen(
                                 cardHeight = cardHeight,
                                 selected = item.id in selected,
                                 selectionMode = selecting,
-                                onPause = { vm.pause(item.id) },
-                                onResume = { vm.resume(item.id) },
-                                onRemove = { requestRemove(item) },
-                                onOpen = { openDownloaded(context, item.savedUri, showToast) },
-                                onDetails = { detailsId = item.id },
-                                onToggleSelect = {
-                                    selected = if (item.id in selected) selected - item.id else selected + item.id
-                                },
-                                onLongPress = { if (item.id !in selected) selected = selected + item.id }
+                                onPause = cardPause,
+                                onResume = cardResume,
+                                onRemove = cardRemove,
+                                onOpen = cardOpen,
+                                onDetails = cardDetails,
+                                onToggleSelect = cardToggleSelect,
+                                onLongPress = cardLongPress
                             )
                         }
                     }
@@ -987,38 +1000,6 @@ private fun PlusMenuOption(
     }
 }
 
-/**
- * Smooth "snap to card" fling. The finger's own fling speed decides how far the list would travel (the normal
- * Android fling feel, nothing sticky); that landing spot is rounded to the nearest card edge and the list glides
- * there in ONE ease-out motion, so it never stops half-way and never feels like it is being pulled back.
- */
-@Composable
-private fun rememberSmoothSnapFling(listState: LazyListState, stepPx: Int, maxPos: Int): FlingBehavior {
-    val decay = rememberSplineBasedDecay<Float>()
-    val step by rememberUpdatedState(stepPx)
-    val max by rememberUpdatedState(maxPos)
-    return remember(listState, decay) {
-        object : FlingBehavior {
-            override suspend fun ScrollScope.performFling(initialVelocity: Float): Float {
-                val s = step.toFloat()
-                if (s <= 0f) return 0f
-                val pos = listState.firstVisibleItemIndex * s + listState.firstVisibleItemScrollOffset
-                val travel = decay.calculateTargetValue(0f, initialVelocity)
-                val target = (Math.round((pos + travel) / s) * s).coerceIn(0f, max.toFloat())
-                val delta = target - pos
-                if (abs(delta) < 1f) return 0f
-                val duration = (280 + abs(delta) / s * 80).toInt().coerceAtMost(900)
-                var last = 0f
-                animate(0f, delta, animationSpec = tween(duration, easing = LinearOutSlowInEasing)) { v, _ ->
-                    scrollBy(v - last)
-                    last = v
-                }
-                return 0f
-            }
-        }
-    }
-}
-
 /* ------------------------------------------------------------------ */
 /*  Download card                                                      */
 /* ------------------------------------------------------------------ */
@@ -1029,13 +1010,13 @@ private fun DownloadCard(
     cardHeight: Dp,
     selected: Boolean,
     selectionMode: Boolean,
-    onPause: () -> Unit,
-    onResume: () -> Unit,
-    onRemove: () -> Unit,
-    onOpen: () -> Unit,
-    onDetails: () -> Unit,
-    onToggleSelect: () -> Unit,
-    onLongPress: () -> Unit,
+    onPause: (Long) -> Unit,
+    onResume: (Long) -> Unit,
+    onRemove: (DownloadItem) -> Unit,
+    onOpen: (String?) -> Unit,
+    onDetails: (Long) -> Unit,
+    onToggleSelect: (Long) -> Unit,
+    onLongPress: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val c = Downix.colors
@@ -1049,8 +1030,8 @@ private fun DownloadCard(
             .height(cardHeight)
             .pressable(
                 pressedScale = 0.985f,
-                onLongClick = onLongPress,
-                onClick = if (selectionMode) onToggleSelect else onDetails
+                onLongClick = { onLongPress(item.id) },
+                onClick = { if (selectionMode) onToggleSelect(item.id) else onDetails(item.id) }
             )
             .glass(cardShape)
             .then(if (borderAlpha > 0.01f) Modifier.border(1.5.dp, c.text.copy(alpha = borderAlpha), cardShape) else Modifier)
@@ -1061,17 +1042,20 @@ private fun DownloadCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             // checkbox (22) + gap (10) = 32 dp slot that opens smoothly instead of popping in
             Box(Modifier.width(32.dp * sel), contentAlignment = Alignment.CenterStart) {
-                DownixCheckbox(
-                    selected,
-                    Modifier
-                        .requiredSize(22.dp)
-                        .graphicsLayer {
-                            alpha = sel
-                            val k = 0.6f + 0.4f * sel
-                            scaleX = k
-                            scaleY = k
-                        }
-                )
+                // not even composed while selection mode is off (it has 4 animations of its own per card)
+                if (sel > 0.001f) {
+                    DownixCheckbox(
+                        selected,
+                        Modifier
+                            .requiredSize(22.dp)
+                            .graphicsLayer {
+                                alpha = sel
+                                val k = 0.6f + 0.4f * sel
+                                scaleX = k
+                                scaleY = k
+                            }
+                    )
+                }
             }
             FileTile(item.fileName)
             Spacer(Modifier.width(10.dp))
@@ -1123,24 +1107,25 @@ private fun DownloadCard(
             )
             when {
                 item.isCompleted -> {
-                    AnimatedIconButton(DownixIcons.OpenFile, "Open file", c.text, onOpen, enabled = !selectionMode)
+                    AnimatedIconButton(DownixIcons.OpenFile, "Open file", c.text, { onOpen(item.savedUri) }, enabled = !selectionMode, animateSwap = false)
                 }
                 item.canPause -> {
-                    AnimatedIconButton(DownixIcons.Pause, "Pause", c.text, onPause, enabled = !selectionMode, optimisticIcon = DownixIcons.Play)
+                    AnimatedIconButton(DownixIcons.Pause, "Pause", c.text, { onPause(item.id) }, enabled = !selectionMode, optimisticIcon = DownixIcons.Play, animateSwap = false)
                 }
                 else -> {
                     AnimatedIconButton(
                         icon = if (item.state == DownloadState.FAILED) DownixIcons.Retry else DownixIcons.Play,
                         description = if (item.state == DownloadState.FAILED) "Retry" else "Resume",
                         tint = c.text,
-                        onClick = onResume,
+                        onClick = { onResume(item.id) },
                         enabled = !selectionMode,
-                        optimisticIcon = DownixIcons.Pause
+                        optimisticIcon = DownixIcons.Pause,
+                        animateSwap = false
                     )
                 }
             }
             // Red dustbin on every card (active, paused, failed, completed). No swipe-to-delete any more.
-            PlainIconButton(DownixIcons.Trash, "Delete", c.red, onRemove, enabled = !selectionMode)
+            PlainIconButton(DownixIcons.Trash, "Delete", c.red, { onRemove(item) }, enabled = !selectionMode)
         }
 
     }
@@ -1203,22 +1188,21 @@ internal fun StatusLine(item: DownloadItem) {
         DownloadState.COMPLETED -> StatusKind.COMPLETED
         DownloadState.CANCELED -> StatusKind.CANCELED
     }
-    Crossfade(targetState = kind, animationSpec = tween(380, easing = FastOutSlowInEasing), label = "statusKind") { k ->
-        val color = when (k) {
-            StatusKind.CONNECTING, StatusKind.RUNNING, StatusKind.SAVING, StatusKind.COMPLETED -> c.green
-            StatusKind.FAILED -> c.red
-            else -> c.textSecondary
-        }
-        Text(
-            statusText(k, item),
-            color = color,
-            fontSize = 12.sp,
-            lineHeight = 17.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+    // Plain text (no cross-fade): a cross-fade is a whole animation machine per card, which made scrolling heavy.
+    val color = when (kind) {
+        StatusKind.CONNECTING, StatusKind.RUNNING, StatusKind.SAVING, StatusKind.COMPLETED -> c.green
+        StatusKind.FAILED -> c.red
+        else -> c.textSecondary
     }
+    Text(
+        statusText(kind, item),
+        color = color,
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
 }
 
 /** 34 dp glass tile with a thin file-type icon. */

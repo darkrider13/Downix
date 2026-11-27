@@ -628,7 +628,8 @@ internal fun AnimatedIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    optimisticIcon: ImageVector? = null
+    optimisticIcon: ImageVector? = null,
+    animateSwap: Boolean = true
 ) {
     val alpha by animateFloatAsState(if (enabled) 1f else 0.35f, tween(200), label = "iconButtonAlpha")
     // The play / pause icon swaps at once on tap (does not wait for the engine) and goes back to the
@@ -655,23 +656,28 @@ internal fun AnimatedIconButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        AnimatedContent(
-            targetState = shown,
-            transitionSpec = {
-                (fadeIn(tween(320, delayMillis = 120, easing = FastOutSlowInEasing)) +
-                    scaleIn(initialScale = 0.88f, animationSpec = tween(320, delayMillis = 120, easing = FastOutSlowInEasing))
-                    ) togetherWith
-                    (fadeOut(tween(240, easing = FastOutSlowInEasing)) +
-                        scaleOut(targetScale = 0.88f, animationSpec = tween(240, easing = FastOutSlowInEasing)))
-            },
-            label = "iconSwap"
-        ) { icn ->
-            Icon(
-                icn,
-                contentDescription = description,
-                tint = tint,
-                modifier = Modifier.size(22.dp)
-            )
+        if (!animateSwap) {
+            // list cards: instant swap, no AnimatedContent per card (lighter while scrolling)
+            Icon(shown, contentDescription = description, tint = tint, modifier = Modifier.size(22.dp))
+        } else {
+            AnimatedContent(
+                targetState = shown,
+                transitionSpec = {
+                    (fadeIn(tween(320, delayMillis = 120, easing = FastOutSlowInEasing)) +
+                        scaleIn(initialScale = 0.88f, animationSpec = tween(320, delayMillis = 120, easing = FastOutSlowInEasing))
+                        ) togetherWith
+                        (fadeOut(tween(240, easing = FastOutSlowInEasing)) +
+                            scaleOut(targetScale = 0.88f, animationSpec = tween(240, easing = FastOutSlowInEasing)))
+                },
+                label = "iconSwap"
+            ) { icn ->
+                Icon(
+                    icn,
+                    contentDescription = description,
+                    tint = tint,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
     }
 }
