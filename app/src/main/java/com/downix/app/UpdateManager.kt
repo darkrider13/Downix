@@ -105,10 +105,18 @@ class UpdateManager private constructor(context: Context) {
         checkLock.withLock {
             if (_state.value is UpdateState.Downloading) return
             if (manual) _state.value = UpdateState.Checking
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            // A tapped "Check" always shows "Checking..." for at least 1.5 s, then the result appears.
+            suspend fun holdChecking() {
+                if (!manual) return
+                val left = 1500L - (android.os.SystemClock.elapsedRealtime() - startedAt)
+                if (left > 0) kotlinx.coroutines.delay(left)
+            }
             try {
                 val json = withContext(Dispatchers.IO) { fetchLatest() }
 
                 val info = json?.let { parseRelease(it) }
+                holdChecking()
                 if (json != null && info != null && isNewerVersion(info.versionName, BuildConfig.VERSION_NAME)) {
                     prefs.edit().putString(KEY_RELEASE, json).apply()
                     _state.value = readyOrAvailable(info)
@@ -119,7 +127,10 @@ class UpdateManager private constructor(context: Context) {
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                if (manual) _state.value = UpdateState.Error(friendly(e))
+                if (manual) {
+                    holdChecking()
+                    _state.value = UpdateState.Error(friendly(e))
+                }
             }
         }
     }

@@ -175,15 +175,16 @@ internal fun UpdateSettingsRow(
         state is UpdateState.Checking -> "Checking..."
         state is UpdateState.UpToDate -> "You have the latest version (${BuildConfig.VERSION_NAME})"
         state is UpdateState.Available -> "Version ${state.info.versionName} is available"
-        state is UpdateState.Downloading -> "Downloading ${percentText(state)}"
-        state is UpdateState.ReadyToInstall -> "Version ${state.info.versionName} is ready to install"
+        // No download progress here: it is shown only in the update popup.
+        state is UpdateState.Downloading -> "Version ${state.info.versionName} is available"
+        state is UpdateState.ReadyToInstall -> "Version ${state.info.versionName} is available"
         state is UpdateState.Error -> state.message
         else -> "Downix ${BuildConfig.VERSION_NAME}"
     }
     SettingRow(title = "Check now", subtitle = subtitle) {
         when {
             !configured || state is UpdateState.Checking -> Unit
-            state is UpdateState.Available -> Box {
+            state is UpdateState.Available || state is UpdateState.Downloading || state is UpdateState.ReadyToInstall -> Box {
                 PillButton("Update", onClick = onOpen, modifier = Modifier.widthIn(min = 84.dp))
                 // small green dot INSIDE the pill, on the right side (the pill is widened so it never touches the text)
                 val dotColor = Downix.colors.green
@@ -191,8 +192,6 @@ internal fun UpdateSettingsRow(
                     drawCircle(dotColor)
                 }
             }
-            state is UpdateState.Downloading -> PillButton("View", onClick = onOpen)
-            state is UpdateState.ReadyToInstall -> PillButton("Install", onClick = onInstall)
             state is UpdateState.Error && state.info != null -> PillButton("Details", onClick = onOpen)
             else -> PillButton("Check", onClick = onCheck)
         }
