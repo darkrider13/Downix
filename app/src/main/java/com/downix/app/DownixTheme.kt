@@ -10,6 +10,8 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.CornerRadius
@@ -967,7 +969,7 @@ internal fun GlassBottomSheet(
 /**
  * Centered pop-up (used by "Add link" and "From clipboard"): glass card in the middle of the screen,
  * blurred app behind it, fades in (no scale, no movement). Tap outside or Back closes it.
- * The card stays fixed: the keyboard never moves it.
+ * The card glides with the keyboard (followed frame by frame, see GlassCenterDialog).
  */
 @Composable
 internal fun GlassCenterDialog(
@@ -1002,13 +1004,27 @@ internal fun GlassCenterDialog(
         // The card sits locked at the centre. Only when the keyboard opens it glides up (just enough room is taken
         // from the bottom), and when the keyboard closes it glides back down to the same locked centre.
         val density = LocalDensity.current
-        val keyboardPx = (WindowInsets.ime.getBottom(density) - WindowInsets.navigationBars.getBottom(density))
-            .coerceAtLeast(0)
-        val lift by animateFloatAsState(
-            targetValue = keyboardPx.toFloat(),
-            animationSpec = tween(220, easing = FastOutSlowInEasing),
-            label = "keyboardLift"
-        )
+        // STABLE bar sizes ("ignoring visibility"): they never change when a system bar hides / shows for a moment
+        // (for example when the system "copied" overlay or a toast takes the window focus). Before, the visible-only
+        // insets changed for a moment and the centred card slid down a little after tapping a copy button.
+        val imeInsets = WindowInsets.ime
+        val navStable = WindowInsets.navigationBarsIgnoringVisibility
+        // Keyboard lift. While the system itself animates the keyboard (Android 11+) its per-frame value is followed
+        // 1:1 with NO extra animation on top (an extra tween restarted every frame and made the card lag behind, then
+        // jump at the end). Only when the keyboard size jumps at once (older phones / some keyboards) the card glides.
+        val lift = remember { Animatable(0f) }
+        LaunchedEffect(density) {
+            val jumpPx = with(density) { 96.dp.toPx() }
+            snapshotFlow {
+                (imeInsets.getBottom(density) - navStable.getBottom(density)).coerceAtLeast(0).toFloat()
+            }.collectLatest { target ->
+                if (kotlin.math.abs(target - lift.value) <= jumpPx) {
+                    lift.snapTo(target)
+                } else {
+                    lift.animateTo(target, tween(240, easing = FastOutSlowInEasing))
+                }
+            }
+        }
         Box(
             Modifier
                 .fillMaxSize()
@@ -1018,11 +1034,20 @@ internal fun GlassCenterDialog(
                     indication = null,
                     onClick = onDismiss
                 )
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(bottom = with(density) { lift.toDp() }),
-            contentAlignment = Alignment.Center
+                .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
+                .windowInsetsPadding(navStable)
         ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    // The lift is read only in the layout phase: no recomposition on every keyboard frame.
+                    .layout { measurable, constraints ->
+                        val h = (constraints.maxHeight - lift.value.toInt()).coerceAtLeast(0)
+                        val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                        layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, 0) }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
             Column(
                 Modifier
                     .graphicsLayer { alpha = progress.value }
@@ -1050,6 +1075,7 @@ internal fun GlassCenterDialog(
                 )
                 Spacer(Modifier.height(12.dp))
                 content()
+            }
             }
         }
     }
