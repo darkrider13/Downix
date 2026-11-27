@@ -500,7 +500,6 @@ private fun MainScreen(
                                     spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
                                 )
                             )
-                            }
                         }
                     }
                 }
