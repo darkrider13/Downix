@@ -1,14 +1,14 @@
-# Downly
+# Downix
 
 Android download manager (Kotlin + Jetpack Compose). Paste a link, download inside the app.
 
 ## Release flow (automatic)
 Push to `main` -> GitHub Actions (`.github/workflows/release.yml`) builds a **signed** APK and publishes it as a
-GitHub Release (`v1.0.<run number>`). Installed Downly apps find it through **Settings > Check now**
+GitHub Release (`v1.0.<run number>`). Installed Downix apps find it through **Settings > Check now**
 (and automatically: on app start and twice a day in the background) and install it **over the old version**,
 keeping downloads and settings.
 
-- Version name = `downly.versionBase` (gradle.properties) + `.` + GitHub run number, e.g. `1.0.12`
+- Version name = `downix.versionBase` (gradle.properties) + `.` + GitHub run number, e.g. `1.0.12`
 - Version code = run number (always grows, required by Android for updates)
 - The repository must be **public** (the app reads the Releases API without a login)
 
@@ -36,6 +36,6 @@ The app checks GitHub for a new release 2 seconds after it opens (no background 
 Settings > Updates > Check now checks again by hand.
 
 ## UI design
-Day and AMOLED Dark themes follow the Downly_Design_AI pack. All colours, glass surfaces, buttons, toggles, sheets, toast and icons
-live in `DownlyTheme.kt` (read `Downly.colors` inside any composable). Settings > Theme: Auto / Day / Dark.
+Day and AMOLED Dark themes follow the Downix_Design_AI pack. All colours, glass surfaces, buttons, toggles, sheets, toast and icons
+live in `DownixTheme.kt` (read `Downix.colors` inside any composable). Settings > Theme: Auto / Day / Dark.
 Button rules: white = normal actions, green = Download only, red = delete / cancel.

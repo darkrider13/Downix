@@ -1,4 +1,4 @@
-# Downly UI Redesign - Progress File
+# Downix UI Redesign - Progress File
 
 Hand this file + the latest project zip + Downly_Design_AI.zip to any Claude. Read this file first, then continue from the next pending step.
 (Ei file ar project zip ar design zip onno Claude account e dile ekdom ei jaiga theke kaj shuru kora jabe.)
@@ -14,7 +14,7 @@ Hand this file + the latest project zip + Downly_Design_AI.zip to any Claude. Re
 ## User rules (every reply)
 - Reply in Bengali (code, file names and links stay as they are).
 - Repo link in a code block. Upload table: left = tappable `REPO/upload/main/<folder>` link, right = files; one row per folder.
-- ONE zip: top folder `Downly_UI_StepN_Upload`, numbered subfolders (01_root, 02_...) in the same order as the table, original file names.
+- ONE zip: top folder `Downix_UI_StepN_Upload`, numbered subfolders (01_root, 02_...) in the same order as the table, original file names.
   Dot files get an underscore prefix (`_gitignore`). A single changed file is given directly, no zip.
 - Never include secrets (keystores, keystore.properties, .env, API keys, signing-private/).
 - When behaviour or look changes, explain the change with a concrete example in Bengali.
@@ -31,26 +31,26 @@ Hand this file + the latest project zip + Downly_Design_AI.zip to any Claude. Re
 Progress: 5 of 5 steps done | 0 remaining | 100% done. Next: first GitHub build, fix compile errors if any, then compare on a phone with the PNGs.
 
 ## Step 1 notes (done)
-New file `DownlyTheme.kt` (package com.downly.app) holds everything shared:
+New file `DownixTheme.kt` (package com.downix.app) holds everything shared:
 - `enum ThemeMode { AUTO, DAY, DARK }` (+ `isDark(systemDark)`, `fromKey`). Saved as `theme_mode` in SettingsRepository, part of AppSettings, SettingNames.THEME,
   included in settings export / import (SettingsBackup key `theme_mode`). Default = AUTO.
-- `DownlyColors` with `DownlyDark` / `DownlyDay` (all colours from PROMPT.md). Use inside any composable: `val c = Downly.colors`
+- `DownixColors` with `DownixDark` / `DownixDay` (all colours from PROMPT.md). Use inside any composable: `val c = Downix.colors`
   tokens: text, textSecondary, glassFill, glassBorder, green (text / Download button), greenBar, onGreen, red, onRed, track, paused,
   divider, sheetFill, scrim, plusOverlay, whiteBorder, toggleOffTrack, toggleOffBorder, background, isDark.
-- `DownlyTheme(mode) { }` (wraps MaterialTheme too), `DownlyBackground { }` (soft elliptical glows, 5 in dark, 3 in day).
+- `DownixTheme(mode) { }` (wraps MaterialTheme too), `DownixBackground { }` (soft elliptical glows, 5 in dark, 3 in day).
 - Modifiers: `Modifier.glass(shape, strong)` (theme aware; strong = sheetFill), `Modifier.whiteButton(shape)` (white fill, theme border, small shadow),
   `Modifier.pressable(enabled, pressedScale, onClick)`.
 - Buttons: `GlassIconButton` (= WHITE round icon button, default 34, tap area >= 40), `PlainIconButton` (no background, 40 tap, 18 icon),
   `PillButton(text, onClick, ..., green, danger, outlineRed, small)`: default WHITE, green = only Download, danger = red filled (Delete),
   outlineRed = red outline (Cancel), small = 32 high. `primary` is ignored (kept so old calls compile).
   `ThemeSegmented` (Auto / Day / Dark), `GlassDialog` (still a centred dialog, glass strong fill).
-- `DownlyIcons`: 1.8 stroke icons from the design paths: Search, Pause, ClearAll, Settings, Play, Close, OpenFile, Trash, Plus, Minus, Check, Back,
+- `DownixIcons`: 1.8 stroke icons from the design paths: Search, Pause, ClearAll, Settings, Play, Close, OpenFile, Trash, Plus, Minus, Check, Back,
   Link, Clipboard, Retry, FileVideo, FileZip, FileDoc, FileImage, FileAudio, FileApp, FileOther. Built with PathParser, tint with Icon(tint = ...).
 - The old `Palette` object is REMOVED. Old dialogs / settings now use the theme tokens (mapped: Ice->text, Mist->textSecondary, Sky->text,
   Amber->paused, Coral->red, Mint/Lime->green) so they are readable in both modes, but they are NOT pixel matched yet (steps 2-5).
 
 MainActivity.kt (Step 1):
-- onCreate: reads themeMode, `DownlyTheme(...)`, status / navigation bar icons follow Day / Dark (`SystemBarStyle.auto`).
+- onCreate: reads themeMode, `DownixTheme(...)`, status / navigation bar icons follow Day / Dark (`SystemBarStyle.auto`).
 - Header (glass, radius 18): "Downloads" 18sp bold + "1 active · 7.5 MB/s" 11sp, icons search (plain), pause all (white 32), clear finished (red plain), settings (plain).
   Search toggle moved from the chip row to the header.
 - DownloadCard: 34 tile, name 13sp one line, status 12sp (green bold / gray / red), bar 6dp (green, gray when paused / waiting, hidden when done),
@@ -63,7 +63,7 @@ DownloadTools.kt: new `FilterBar(items, filter, onFilter)` (chips "All 3", heigh
 UpdateUi.kt: colours mapped, `GlassProgress(progress, indeterminate, color)` new signature (flat colour).
 
 ## Step 2 notes (done)
-DownlyTheme.kt (new shared pieces):
+DownixTheme.kt (new shared pieces):
 - `GlassBottomSheet(onDismiss, title) { }`: Dialog, own scrim (`c.scrim`, window dim switched off), glass strong sheet, margin 8, radius 24, handle 36x4,
   title 15sp bold, slides up 300 ms, above the keyboard (imePadding + navigationBarsPadding). Tap on scrim / Back closes it. USE THIS for the Delete sheet in Step 3.
 - `GlassField(value, onValueChange, placeholder, ..., focusRequester, trailing)`: single-line input, height 44, radius 12, glass fill + border (red border when isError).
@@ -80,7 +80,7 @@ MainActivity.kt:
 - Not pixel-checked: no screenshot exists for the Add link sheet, it follows the text in PROMPT.md.
 
 ## Step 3 notes (done)
-DownlyTheme.kt: `DownlyCheckbox(checked)` (22 dp, radius 7; unchecked 2 dp gray border, checked white box + black tick), `DownlyToast(text)` (glass strong pill, min height 48, 28 white circle + tick, 13sp).
+DownixTheme.kt: `DownixCheckbox(checked)` (22 dp, radius 7; unchecked 2 dp gray border, checked white box + black tick), `DownixToast(text)` (glass strong pill, min height 48, 28 white circle + tick, 13sp).
 DownloadTools.kt:
 - `ConfirmRemoveDialog(item, onCancel, onListOnly, onDeleteFile)` is now the "Delete download?" bottom sheet (name kept so MainActivity calls are unchanged):
   subtitle, glass row (radius 14) with checkbox "Also delete the file from phone" / "This can't be undone" (unchecked by default), Cancel (red outline) + Delete (red filled).
@@ -92,23 +92,23 @@ Toast: state `toastText` + `showToast()` in MainScreen, pill at bottom (left 16,
 Not done on purpose: the "Cancel download" X on running cards still opens the cancel sheet (no toast).
 
 ## Step 4 notes (done)
-MainActivity.kt: `SettingsDialog` (popup) is replaced by `SettingsScreen`, a full-screen overlay drawn INSIDE MainScreen's `DownlyBackground` box
-(after PlusMenu / toast, so it covers them): `AnimatedVisibility(showSettings)`, own `DownlyBackground`, Back button / system Back / "Done" close it.
+MainActivity.kt: `SettingsDialog` (popup) is replaced by `SettingsScreen`, a full-screen overlay drawn INSIDE MainScreen's `DownixBackground` box
+(after PlusMenu / toast, so it covers them): `AnimatedVisibility(showSettings)`, own `DownixBackground`, Back button / system Back / "Done" close it.
 Same parameters and callbacks as the old dialog (nothing removed): theme, download folder (+ new "Default folder / Reset" row shown only when a custom folder is set =
 the old "Use Downloads folder" button), simultaneous downloads, Wi-Fi only, notifications, auto update check, update row, export / import, file pickers.
 - Layout: glass top bar (back arrow + "Settings" 16sp bold), white section pills (GENERAL, NETWORK AND ALERTS, UPDATES, BACKUP), `SettingGroup` (glass radius 16, margin 12),
   `SettingRow` min 52 / title 13sp / subtitle 11sp, `SettingDivider` = `c.divider`, full-width white "Done" (min height 48).
 - `GlassSwitch` is now the custom 38x22 toggle (ON white track + black knob, OFF gray track + gray knob, 40 dp tap area, animated knob).
-- `Stepper`: white round - / + (32) with `DownlyIcons.Minus / Plus`. Download folder subtitle = folder name only (e.g. "Movies").
-UpdateUi.kt: row title "Check now", default subtitle "Downly <version>", small white pills.
-Removed from the old popup: the "Downly <version>" line at the bottom (the version is now the subtitle of "Check now").
+- `Stepper`: white round - / + (32) with `DownixIcons.Minus / Plus`. Download folder subtitle = folder name only (e.g. "Movies").
+UpdateUi.kt: row title "Check now", default subtitle "Downix <version>", small white pills.
+Removed from the old popup: the "Downix <version>" line at the bottom (the version is now the subtitle of "Check now").
 
 ## Step 5 notes (done)
 - UpdateUi.kt: `UpdateBanner` text 13 / 11sp; `UpdateDialog` is now a `GlassBottomSheet` (title = state, buttons side by side, all white; red text only for errors).
 - DownloadTools.kt: `SearchField` uses `GlassField` (height 44, radius 12, search icon turns into a clear X when text is typed); empty list texts 15 / 12sp.
 - MainActivity.kt: window background follows the chosen mode in code (`window.setBackgroundDrawable`), OfflineBanner text 12sp.
 - res/values/themes.xml: window background is the Day colour #E8EEF5 (light status bar icons); NEW res/values-night/themes.xml: black. Together they remove the black flash on cold start in Day mode.
-- README.md + PROGRESS.md: notes about the new UI. `GlassDialog` is no longer used by any screen (still defined in DownlyTheme.kt, can be deleted).
+- README.md + PROGRESS.md: notes about the new UI. `GlassDialog` is no longer used by any screen (still defined in DownixTheme.kt, can be deleted).
 - Still not compiled / not seen on a device: expect small spacing differences versus the PNGs. Ideas for a later pass: real blur behind glass surfaces, Add link / Details / Update sheets have no PNG.
 
 ## Things to remember

@@ -1,16 +1,16 @@
-# Downly - Progress File
+# Downix - Progress File
 
 Hand this zip to any Claude. Read this file first, then continue from the next pending step.
 Build on the files already in this zip, update them, and return the full updated zip.
 
 ## Project
 Android download manager (native Kotlin + Jetpack Compose). Paste a link, download inside the app.
-- App name: **Downly** (renamed from "Glass Downloader" in Step 5) | package: com.downly.app
+- App name: **Downix** (renamed from "Glass Downloader" in Step 5) | package: com.downix.app
 - UI language: English only
-- UI design: see UI_REDESIGN_PROGRESS.md (Day + AMOLED Dark, glass surfaces, bottom sheets, full-screen Settings; tokens in DownlyTheme.kt)
+- UI design: see UI_REDESIGN_PROGRESS.md (Day + AMOLED Dark, glass surfaces, bottom sheets, full-screen Settings; tokens in DownixTheme.kt)
 - Features: progress bar, speed, size, pause / resume / cancel, background download with notification,
   saves to Downloads folder, download list persists after app is closed
-- Icon: grey rounded square, white down arrow, long soft shadow. Source of truth: branding/downly-icon.svg
+- Icon: grey rounded square, white down arrow, long soft shadow. Source of truth: branding/downix-icon.svg
   (Android files in res/ were generated from it: adaptive icon, legacy PNGs mipmap-*/ic_launcher.png, drawable/ic_stat_download.xml)
 
 ## Rules from the user (Banglish speaker, reply in Banglish)
@@ -18,7 +18,7 @@ Android download manager (native Kotlin + Jetpack Compose). Paste a link, downlo
 - After each step show: done steps, remaining steps, "% remaining"
 - Do NOT tell the user to build/test on GitHub after each step (only at the very end). Step 8 is the exception: the release pipeline needs the 4 GitHub secrets once
 - Write code that compiles without testing (the user tests at the end); no invented logic when porting
-- Zip must unzip into ONE folder (Downly/)
+- Zip must unzip into ONE folder (Downix/)
 
 ## Steps
 | # | Step | Status |
@@ -27,13 +27,14 @@ Android download manager (native Kotlin + Jetpack Compose). Paste a link, downlo
 | 2 | Download engine (OkHttp, pause/resume with Range header) | DONE |
 | 3 | Database (Room, download list) | DONE |
 | 4 | Main screen UI (glass + blue gradient, Compose) | DONE |
-| 5 | Rebrand to Downly + new icon + foreground DownloadService + notifications | DONE |
+| 5 | Rebrand to Downix + new icon + foreground DownloadService + notifications | DONE |
 | 6 | Smart engine: network monitor, auto-resume, auto-retry, Wi-Fi only, wake/wifi lock | DONE |
 | 7 | Settings: preferences store + Settings screen | DONE |
 | 8 | Settings backup (export / import), signed release key, in-app update checker, GitHub Actions build + publish release, R8, README | DONE |
 | 9 | List tools and file actions: filters, search, details, copy / share / delete file, file name, duplicates, clipboard suggestion | DONE |
+| 10 | Rename the app to Downix (package com.downix.app, files DownixTheme.kt, branding/downix-icon.*) | DONE |
 
-Progress: 9 of 9 done | 0 remaining | 0% remaining (all planned steps finished; next = first GitHub build and fixing compile errors if any)
+Progress: 10 of 10 done | 0 remaining | 0% remaining (all planned steps finished; next = first GitHub build and fixing compile errors if any)
 
 (The user redefined Step 8 in the Step 8 chat: settings backup + release + updater came first. The old Step 8 "list tools" became Step 9;
 the old Step 9 "GitHub Actions + R8 + README" was merged into the new Step 8.)
@@ -41,27 +42,27 @@ the old Step 9 "GitHub Actions + R8 + README" was merged into the new Step 8.)
 ## Step 8 notes (done): settings backup, signing, updater, release pipeline
 - SettingsRepository.kt: AppSettings got `autoUpdateCheck = true`; `setAutoUpdateCheck`, `replaceAll(AppSettings)` (import); new `object SettingNames`
   (user-visible names: "Simultaneous downloads", "Wi-Fi only", "Notifications", "Check for updates automatically") used by the Settings UI AND the backup file.
-- SettingsBackup.kt: `export(settings, appVersion): String` (JSON: type "downly-settings-backup", formatVersion 1, appVersion, exportedAt,
+- SettingsBackup.kt: `export(settings, appVersion): String` (JSON: type "downix-settings-backup", formatVersion 1, appVersion, exportedAt,
   settings[] of {key, name, value}), `import(text, current): Pair<ImportResult, AppSettings>` (tolerant: unknown keys / wrong types skipped,
   ints range-checked, missing keys keep current value, file over 64 KB refused by the ViewModel). Only settings, never the download list.
   Adding a new setting = add it to AppSettings, SettingNames, SettingsRepository (key + read + replaceAll) and SettingsBackup (export + import).
 - UpdateManager.kt: `UpdateManager.get(context)`, `state: StateFlow<UpdateState>` (Idle, Checking, UpToDate, Available, Downloading, ReadyToInstall, Error),
   `check(manual)`, `startDownload()`, `install(context): InstallStart`, `shouldAnnounce/markAnnounced`, `shouldNotify/markNotified`.
-  Source = GitHub `releases/latest` of `BuildConfig.UPDATE_REPO` ("owner/repo", set by CI via -PupdateRepo, or `downly.updateRepo` in gradle.properties).
+  Source = GitHub `releases/latest` of `BuildConfig.UPDATE_REPO` ("owner/repo", set by CI via -PupdateRepo, or `downix.updateRepo` in gradle.properties).
   Release tag `v<versionName>`, first `.apk` asset is downloaded to cache/updates, verified (same package, higher versionCode, same signing certificate),
   then installed via FileProvider + ACTION_VIEW (asks "install unknown apps" permission first). Auto check max every 6 h, last release is saved so the banner survives restarts.
-- UpdateCheckWorker.kt: WorkManager periodic (12 h, network required), one "Downly update available" notification per version (channel "updates"),
+- UpdateCheckWorker.kt: WorkManager periodic (12 h, network required), one "Downix update available" notification per version (channel "updates"),
   `UpdateCheckWorker.sync(context, enabled)` is driven by the autoUpdateCheck setting from MainViewModel.init.
 - UpdateUi.kt: `UpdateBanner` (under header, tap opens popup), `UpdateDialog` (notes, Update now, progress, Install, errors), `UpdateSettingsRow`.
   MainActivity: popup opens by itself once per new version; Settings popup has sections Downloads / Updates / Backup; GlassDialog now scrolls;
   shared UI pieces (Palette, glass, pressable, GlassDialog, PillButton, GlassProgress, SettingRow, SettingDivider, GlassSwitch) are `internal`.
-- app/build.gradle.kts: versionName = `<downly.versionBase>.<buildNumber>`, versionCode = buildNumber (min 1), BuildConfig.UPDATE_REPO, release signing from env
-  (DOWNLY_KEYSTORE_PATH / _PASSWORD, DOWNLY_KEY_ALIAS / _PASSWORD) or signing-private/keystore.properties; assembleRelease FAILS without a key; R8 + shrinkResources on
+- app/build.gradle.kts: versionName = `<downix.versionBase>.<buildNumber>`, versionCode = buildNumber (min 1), BuildConfig.UPDATE_REPO, release signing from env
+  (DOWNIX_KEYSTORE_PATH / _PASSWORD, DOWNIX_KEY_ALIAS / _PASSWORD) or signing-private/keystore.properties; assembleRelease FAILS without a key; R8 + shrinkResources on
   (app/proguard-rules.pro). Dependency added: androidx.work:work-runtime-ktx 2.9.0. Manifest: REQUEST_INSTALL_PACKAGES + FileProvider (res/xml/file_paths.xml).
 - signing-private/ (NOT for GitHub, in .gitignore): downly-release.jks (alias downly, valid until 2054), keystore.properties, keystore.base64.txt, GITHUB_SECRETS.txt.
   GitHub secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD. Losing this key = users must uninstall once.
 - .github/workflows/release.yml: on push to main/master (md and branding changes ignored) + manual run: checks secrets, Gradle 8.7, signed assembleRelease,
-  apksigner print, `gh release create v<base>.<run number>` with Downly-<version>.apk. Repo must be public for the updater.
+  apksigner print, `gh release create v<base>.<run number>` with Downix-<version>.apk. Repo must be public for the updater.
 - README.md explains the flow and the secret setup.
 
 ## Step 9 notes (done): list tools and file actions
@@ -82,7 +83,7 @@ the old Step 9 "GitHub Actions + R8 + README" was merged into the new Step 8.)
 
 ## Step 7 notes (done): SettingsRepository.kt + settings UI
 - SettingsRepository.kt: `data class AppSettings(maxParallel = 3, wifiOnly = false, notifications = true)` (limits 1..5),
-  `SettingsRepository.get(context)` singleton, SharedPreferences file "downly_settings", `settings: StateFlow<AppSettings>`,
+  `SettingsRepository.get(context)` singleton, SharedPreferences file "downix_settings", `settings: StateFlow<AppSettings>`,
   `current`, setMaxParallel / setWifiOnly / setNotifications
 - DownloadRepository applies maxParallel + wifiOnly to the engine at start and on every change
 - DownloadNotifier.notifyCompleted / notifyFailed return early when notifications are off (the ongoing foreground notification stays)
@@ -108,8 +109,8 @@ the old Step 9 "GitHub Actions + R8 + README" was merged into the new Step 8.)
 - MainActivity.kt: StatusLine / progress colour handle WAITING (amber). Pause and cancel buttons work on WAITING items.
 
 ## Step 5 notes (done): rebrand + icon + DownloadService.kt
-- Everything renamed: package com.downly.app, theme Theme.Downly, db file downly.db, user agent Downly/1.0, rootProject Downly
-- branding/downly-icon.svg (+ downly-icon-512.png): 512x512 SVG, simple shapes only (rounded square, gradient, arrow, shadow)
+- Everything renamed: package com.downix.app, theme Theme.Downix, db file downix.db, user agent Downix/1.0, rootProject Downix
+- branding/downix-icon.svg (+ downix-icon-512.png): 512x512 SVG, simple shapes only (rounded square, gradient, arrow, shadow)
 - Android icon: adaptive (drawable/ic_launcher_background.xml + ic_launcher_foreground.xml, vector with a gradient shadow),
   legacy PNGs in mipmap-mdpi..xxxhdpi for Android 7.x, notification icon drawable/ic_stat_download.xml
 - DownloadService.kt contains two things:
@@ -138,7 +139,7 @@ GlassProgress, AddLinkDialog (paste button + validation), ConfirmCancelDialog, o
 - Compose BOM is 2024.06.00 (foundation 1.6.x): that is why Modifier.animateItemPlacement() is used (not animateItem)
 
 ## Step 3 notes: DownloadDatabase.kt (done, single file)
-Contains: DownloadEntity, DownloadDao, AppDatabase (Room, db name downly.db),
+Contains: DownloadEntity, DownloadDao, AppDatabase (Room, db name downix.db),
 DownloadItem (UI model), DownloadRepository.
 DownloadRepository.get(context) is the singleton used by UI AND service. It owns the one DownloadEngine.
 API:
@@ -183,7 +184,7 @@ Request from the user (screenshots): fix blur on Add link, centered popups, remo
 | R1 | Backup removed completely (SettingsBackup.kt deleted, Settings section, ViewModel code, replaceAll, README) | DONE |
 | R2 | Updates: "Check automatically" switch + setting removed; UpdateCheckWorker.kt + work-runtime dependency removed (no more background checks); app checks 2 s after opening (MainScreen LaunchedEffect delay(2000)); popup opens when an update is found (once per app launch); 6-hour skip removed from UpdateManager; GitHub API 403/429 now falls back to github.com release pages (fetchLatestWeb) | DONE |
 | R3 | Header card removed (Downloads title row) and Settings top bar card removed; gear icon stays top right | DONE |
-| R4 | Add link / From clipboard popup is now a centered dialog (GlassCenterDialog in DownlyTheme.kt); menu blur removed (only the dim overlay stays) | DONE |
+| R4 | Add link / From clipboard popup is now a centered dialog (GlassCenterDialog in DownixTheme.kt); menu blur removed (only the dim overlay stays) | DONE |
 Notes: not compiled here (no SDK). If the update check still says "up to date", the GitHub repo may be private (releases/latest gives 404 to the app) or the release has no .apk asset.
 `UpdateSettingsRow` ("Check now") is unchanged. `SettingNames.AUTO_UPDATE_CHECK` and `AppSettings.autoUpdateCheck` no longer exist.
 
@@ -191,7 +192,7 @@ Notes: not compiled here (no SDK). If the update check still says "up to date", 
 | # | Step | Status |
 |---|------|--------|
 | R5 | "Add link" (from + menu) no longer auto-fills the clipboard link; "From clipboard" still fills it (MainScreen onFromClipboard sets addInitial). AddLinkDialog has no clipboard auto-fill any more (the paste button inside still works) | DONE |
-| R6 | Home buttons are icon only (no white circle): header pause-all, card Pause / Resume / Retry / Open use new `AnimatedIconButton` (DownlyTheme.kt): press squeeze + pause<->play icon swap animation (shrink out, bounce in). `GlassIconButton` is still used by the Settings stepper | DONE |
+| R6 | Home buttons are icon only (no white circle): header pause-all, card Pause / Resume / Retry / Open use new `AnimatedIconButton` (DownixTheme.kt): press squeeze + pause<->play icon swap animation (shrink out, bounce in). `GlassIconButton` is still used by the Settings stepper | DONE |
 | R7 | `GlassProgress` (MainActivity.kt) redone: 7 dp, glass fill (bar colour at 55 to 90 % opacity), light border, glossy top highlight, soft sheen gliding while downloading (param `active`), smoother 700 ms ease-out; unknown size = glass segment sliding | DONE |
 Not compiled here (no SDK). If `AnimatedContent` / `togetherWith` fail to compile, the Compose BOM is older than expected: replace `togetherWith` with `with` and add @OptIn(ExperimentalAnimationApi::class).
 
@@ -201,7 +202,7 @@ Not compiled here (no SDK). If `AnimatedContent` / `togetherWith` fail to compil
 | R8 | Update popup no longer shows GitHub release text (it had commit text / file paths); it shows a fixed "What's new: Bug fixes, performance improvements and a smoother experience." (UpdateUi.kt) | DONE |
 | R9 | Settings: section labels are bold text (no white pill); Stepper is plain - / + (AnimatedIconButton); "Default folder / Reset" row removed (no folder picked = Downloads) | DONE |
 | R10 | Settings uses a draft (`draft` in SettingsScreen); an "Apply" pill appears at the right of the Settings header when anything changed; `MainViewModel.applySettings()` saves all changed values; Back / Done without Apply discards | DONE |
-| R11 | Home gear icon = classic cog (`DownlyIcons.Settings`) | DONE |
+| R11 | Home gear icon = classic cog (`DownixIcons.Settings`) | DONE |
 | R12 | New file DeveloperCredit.kt: "Developed by NAME", WhatsApp / Instagram / Telegram icons, copyright line, at the bottom of Settings. Links are empty strings in `DeveloperInfo` (user adds them later; empty = tap does nothing) | DONE |
 Not compiled here (no SDK).
 
@@ -209,7 +210,7 @@ Not compiled here (no SDK).
 | # | Step | Status |
 |---|------|--------|
 | R13 | Add link popup: separate Connect button removed. `MorphActionButton` (MainActivity.kt) = white "Connect" -> spinner "Connecting" -> green "Download" (colour fade + label slide, no overlap); "Download again" for duplicates; status line above it fades between hint / checking / result (Crossfade) | DONE |
-| R14 | Popup / toast / menu-chip cards are fully solid: `sheetFill` in DownlyTheme.kt now has alpha 1 (dark 0xFF1A1A1F, day 0xFFF8F9FD), so list text never shows through | DONE |
+| R14 | Popup / toast / menu-chip cards are fully solid: `sheetFill` in DownixTheme.kt now has alpha 1 (dark 0xFF1A1A1F, day 0xFFF8F9FD), so list text never shows through | DONE |
 | R15 | Faster popups: GlassCenterDialog and GlassBottomSheet start animating in the first frame (MutableTransitionState), scrim is drawn in the draw phase (Animatable + drawBehind, no recomposition per frame), shorter animations; + menu closes in 80 ms; keyboard focus after 200 ms | DONE |
 Not compiled here (no SDK).
 
@@ -217,8 +218,8 @@ Not compiled here (no SDK).
 - Code has not been compiled yet (no network / Android SDK in the build sandbox); first real build happens when the user pushes to GitHub (Step 8 workflow)
 - Never regenerate or replace the signing key after users installed a build: every build must use the same key
 - Do not put signing-private/ into the repo
-- Icon changes: edit branding/downly-icon.svg first, then regenerate the Android files from it
+- Icon changes: edit branding/downix-icon.svg first, then regenerate the Android files from it
 
 ## UI redesign (done, see UI_REDESIGN_PROGRESS.md)
 Steps 1 to 5 finished: theme + home, plus menu + Add link sheet, delete sheet + toast, full-screen Settings, final polish.
-Palette is gone, use `Downly.colors`. Popups are bottom sheets (`GlassBottomSheet`); `GlassDialog` is no longer used by any screen.
+Palette is gone, use `Downix.colors`. Popups are bottom sheets (`GlassBottomSheet`); `GlassDialog` is no longer used by any screen.
