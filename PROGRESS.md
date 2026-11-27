@@ -7,7 +7,7 @@ Build on the files already in this zip, update them, and return the full updated
 Android download manager (native Kotlin + Jetpack Compose). Paste a link, download inside the app.
 - App name: **Downly** (renamed from "Glass Downloader" in Step 5) | package: com.downly.app
 - UI language: English only
-- UI design: glass-effect cards, popup dialogs, blue gradient background, professional, smooth animations
+- UI design: see UI_REDESIGN_PROGRESS.md (Day + AMOLED Dark, glass surfaces, bottom sheets, full-screen Settings; tokens in DownlyTheme.kt)
 - Features: progress bar, speed, size, pause / resume / cancel, background download with notification,
   saves to Downloads folder, download list persists after app is closed
 - Icon: grey rounded square, white down arrow, long soft shadow. Source of truth: branding/downly-icon.svg
@@ -181,3 +181,7 @@ How it works:
 - Never regenerate or replace the signing key after users installed a build: every build must use the same key
 - Do not put signing-private/ into the repo
 - Icon changes: edit branding/downly-icon.svg first, then regenerate the Android files from it
+
+## UI redesign (done, see UI_REDESIGN_PROGRESS.md)
+Steps 1 to 5 finished: theme + home, plus menu + Add link sheet, delete sheet + toast, full-screen Settings, final polish.
+Palette is gone, use `Downly.colors`. Popups are bottom sheets (`GlassBottomSheet`); `GlassDialog` is no longer used by any screen.

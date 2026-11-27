@@ -4,7 +4,7 @@ Android download manager (Kotlin + Jetpack Compose). Paste a link, download insi
 
 ## Release flow (automatic)
 Push to `main` -> GitHub Actions (`.github/workflows/release.yml`) builds a **signed** APK and publishes it as a
-GitHub Release (`v1.0.<run number>`). Installed Downly apps find it through **Settings > Check for updates**
+GitHub Release (`v1.0.<run number>`). Installed Downly apps find it through **Settings > Check now**
 (and automatically: on app start and twice a day in the background) and install it **over the old version**,
 keeping downloads and settings.
 
@@ -34,3 +34,8 @@ Keep `signing-private/` next to `app/`, then: `gradle :app:assembleRelease -Pbui
 ## Settings backup
 Settings > Backup > Export / Import. The file is JSON with only settings (never the download list); every entry has
 the same name the app shows (for example "Wi-Fi only"), so it is readable.
+
+## UI design
+Day and AMOLED Dark themes follow the Downly_Design_AI pack. All colours, glass surfaces, buttons, toggles, sheets, toast and icons
+live in `DownlyTheme.kt` (read `Downly.colors` inside any composable). Settings > Theme: Auto / Day / Dark.
+Button rules: white = normal actions, green = Download only, red = delete / cancel.

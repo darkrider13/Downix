@@ -26,9 +26,9 @@ Hand this file + the latest project zip + Downly_Design_AI.zip to any Claude. Re
 | 2 | Plus button animated menu (From clipboard / Add link, overlay, rotate to x) + "Add link" bottom sheet | DONE |
 | 3 | Delete bottom sheet ("Delete download?" + checkbox + Cancel / Delete) + toast pill ("File deleted from phone" / "Removed from list") + cancel-download and details dialogs restyled | DONE |
 | 4 | Settings as a full screen (glass top bar with back arrow, white section pills, glass groups, segmented theme switch, custom 38x22 toggles, white Done button) | DONE |
-| 5 | Final polish: update banner / update popup / offline banner / search field / empty states, last check of every screen against the PNGs, README + PROGRESS.md notes | PENDING |
+| 5 | Final polish: update banner / update popup / offline banner / search field / empty states, last check of every screen against the PNGs, README + PROGRESS.md notes | DONE |
 
-Progress: 4 of 5 steps done | 1 remaining | 80% done, 20% remaining.
+Progress: 5 of 5 steps done | 0 remaining | 100% done. Next: first GitHub build, fix compile errors if any, then compare on a phone with the PNGs.
 
 ## Step 1 notes (done)
 New file `DownlyTheme.kt` (package com.downly.app) holds everything shared:
@@ -103,12 +103,13 @@ the old "Use Downloads folder" button), simultaneous downloads, Wi-Fi only, noti
 UpdateUi.kt: row title "Check now", default subtitle "Downly <version>", small white pills.
 Removed from the old popup: the "Downly <version>" line at the bottom (the version is now the subtitle of "Check now").
 
-## Next: Step 5 (final polish) - what to do
-- Restyle what is still old: `UpdateBanner` (under the header), `UpdateDialog` (UpdateUi.kt: use `GlassBottomSheet`, white / green / red button rules), `OfflineBanner`,
-  `SearchField` (DownloadTools.kt: glass, radius 12, height 44 like `GlassField`), `EmptyState` / `EmptyListMessage`.
-- Check every screen against the PNGs in Day and Dark (home, plus menu, delete sheet, toast, settings), fix small size / colour differences.
-- `themes.xml` window background is black: use a day-aware window background to avoid a black flash on cold start in Day mode.
-- Update README.md and PROGRESS.md notes (UI redesign finished, design tokens in DownlyTheme.kt). Then the first GitHub build: fix compile errors if any.
+## Step 5 notes (done)
+- UpdateUi.kt: `UpdateBanner` text 13 / 11sp; `UpdateDialog` is now a `GlassBottomSheet` (title = state, buttons side by side, all white; red text only for errors).
+- DownloadTools.kt: `SearchField` uses `GlassField` (height 44, radius 12, search icon turns into a clear X when text is typed); empty list texts 15 / 12sp.
+- MainActivity.kt: window background follows the chosen mode in code (`window.setBackgroundDrawable`), OfflineBanner text 12sp.
+- res/values/themes.xml: window background is the Day colour #E8EEF5 (light status bar icons); NEW res/values-night/themes.xml: black. Together they remove the black flash on cold start in Day mode.
+- README.md + PROGRESS.md: notes about the new UI. `GlassDialog` is no longer used by any screen (still defined in DownlyTheme.kt, can be deleted).
+- Still not compiled / not seen on a device: expect small spacing differences versus the PNGs. Ideas for a later pass: real blur behind glass surfaces, Add link / Details / Update sheets have no PNG.
 
 ## Things to remember
 - Code never compiled here. First real build happens on GitHub (release.yml). If the user reports compile errors, fix those first.
