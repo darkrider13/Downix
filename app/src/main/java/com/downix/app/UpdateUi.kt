@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -196,9 +197,12 @@ internal fun UpdateSettingsRow(
         when {
             !configured || state is UpdateState.Checking -> Unit
             state is UpdateState.Available -> Box {
-                PillButton("Update", onClick = onOpen, small = true)
-                // dot on the top-right corner of the button, same style as the one on the settings icon
-                UpdateDot(Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-5).dp))
+                PillButton("Update", onClick = onOpen, modifier = Modifier.widthIn(min = 84.dp), small = true)
+                // small green dot INSIDE the pill, on the right side (the pill is widened so it never touches the text)
+                val dotColor = Downix.colors.green
+                Canvas(Modifier.align(Alignment.CenterEnd).padding(end = 11.dp).size(7.dp)) {
+                    drawCircle(dotColor)
+                }
             }
             state is UpdateState.Downloading -> PillButton("View", onClick = onOpen, small = true)
             state is UpdateState.ReadyToInstall -> PillButton("Install", onClick = onInstall, small = true)
