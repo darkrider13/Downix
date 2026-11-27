@@ -310,7 +310,7 @@ fun DownixBackground(modifier: Modifier = Modifier, content: @Composable BoxScop
     // Dark mode: the top and bottom of the screen fade to black (under the status bar and the navigation bar),
     // so the system bars blend into the app and never look like separate strips.
     val topFade = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 72.dp
-    val bottomFade = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 96.dp
+    val bottomFade = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 230.dp
     Box(
         modifier
             .fillMaxSize()
@@ -337,8 +337,9 @@ fun DownixBackground(modifier: Modifier = Modifier, content: @Composable BoxScop
                     drawRect(
                         brush = Brush.verticalGradient(
                             0f to Color.Transparent,
-                            0.45f to Color.Black.copy(alpha = 0.5f),
-                            1f to Color.Black.copy(alpha = 0.94f),
+                            0.35f to Color.Black.copy(alpha = 0.55f),
+                            0.70f to Color.Black.copy(alpha = 0.9f),
+                            1f to Color.Black,
                             startY = size.height - bottom,
                             endY = size.height
                         ),
@@ -982,6 +983,8 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
     val window = (view.parent as? DialogWindowProvider)?.window
     SideEffect {
         window ?: return@SideEffect
+        // no system pop / fade animation when the popup window closes
+        if (window.attributes.windowAnimations != 0) window.setWindowAnimations(0)
         // already prepared: do not touch the window again on every recomposition (that causes flicker)
         val attrs = window.attributes
         if (attrs.width == android.view.ViewGroup.LayoutParams.MATCH_PARENT &&
