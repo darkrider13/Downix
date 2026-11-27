@@ -28,6 +28,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -45,6 +46,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -549,6 +551,30 @@ private fun MainScreen(
         ) {
             DownlyToast(text = toastText ?: lastToast)
         }
+
+        AnimatedVisibility(
+            visible = showSettings,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(150))
+        ) {
+            SettingsScreen(
+                settings = settings,
+                updateState = updateState,
+                updatesConfigured = vm.updatesConfigured,
+                onMaxParallel = vm::setMaxParallel,
+                onWifiOnly = vm::setWifiOnly,
+                onNotifications = vm::setNotifications,
+                onAutoUpdate = vm::setAutoUpdateCheck,
+                onDownloadFolder = vm::setDownloadFolder,
+                onCheckUpdate = vm::checkForUpdates,
+                onOpenUpdate = { showUpdate = true },
+                onInstallUpdate = { installUpdate(context, vm) },
+                onExport = vm::exportSettings,
+                onImport = vm::importSettings,
+                onThemeMode = vm::setThemeMode,
+                onClose = { showSettings = false }
+            )
+        }
     }
 
     if (showAdd) {
@@ -564,26 +590,6 @@ private fun MainScreen(
                 showAdd = false
                 onSharedLinkConsumed()
             }
-        )
-    }
-
-    if (showSettings) {
-        SettingsDialog(
-            settings = settings,
-            updateState = updateState,
-            updatesConfigured = vm.updatesConfigured,
-            onMaxParallel = vm::setMaxParallel,
-            onWifiOnly = vm::setWifiOnly,
-            onNotifications = vm::setNotifications,
-            onAutoUpdate = vm::setAutoUpdateCheck,
-            onDownloadFolder = vm::setDownloadFolder,
-            onCheckUpdate = vm::checkForUpdates,
-            onOpenUpdate = { showUpdate = true },
-            onInstallUpdate = { installUpdate(context, vm) },
-            onExport = vm::exportSettings,
-            onImport = vm::importSettings,
-            onThemeMode = vm::setThemeMode,
-            onClose = { showSettings = false }
         )
     }
 
@@ -1261,8 +1267,12 @@ private fun ConfirmCancelDialog(fileName: String, onKeep: () -> Unit, onCancelDo
     }
 }
 
+/**
+ * Full-screen Settings (design: settings-day / settings-dark): glass top bar with a back arrow,
+ * white section pills, one glass group per section, white "Done" button at the bottom.
+ */
 @Composable
-private fun SettingsDialog(
+private fun SettingsScreen(
     settings: AppSettings,
     updateState: UpdateState,
     updatesConfigured: Boolean,
@@ -1279,8 +1289,10 @@ private fun SettingsDialog(
     onThemeMode: (ThemeMode) -> Unit,
     onClose: () -> Unit
 ) {
+    val c = Downly.colors
     val context = LocalContext.current
     val showMessage: (String) -> Unit = { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+    BackHandler(onBack = onClose)
 
     // System file picker: the user chooses where the backup is saved / which file is restored.
     val exportLauncher = rememberLauncherForActivityResult(
@@ -1298,127 +1310,179 @@ private fun SettingsDialog(
         }
     }
 
-    GlassDialog(onClose) {
-        Text("Settings", color = Downly.colors.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(10.dp))
+    // The full screen sits on top of the list: swallow touches so nothing behind it reacts.
+    Box(
+        Modifier
+            .fillMaxSize()
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {})
+    ) {
+        DownlyBackground {
+            Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                // Top bar
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 4.dp)
+                        .glass(RoundedCornerShape(18.dp))
+                        .padding(horizontal = 6.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PlainIconButton(
+                        icon = DownlyIcons.Back,
+                        description = "Back",
+                        tint = c.text,
+                        onClick = onClose
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Settings", color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
 
-        SettingRow(title = SettingNames.THEME, subtitle = "Day or AMOLED dark") {
-            ThemeSegmented(settings.themeMode, onThemeMode)
-        }
-        SettingDivider()
-        SettingRow(
-            title = SettingNames.MAX_PARALLEL,
-            subtitle = "How many files download at the same time"
-        ) {
-            Stepper(
-                value = settings.maxParallel,
-                min = AppSettings.MIN_PARALLEL,
-                max = AppSettings.MAX_PARALLEL,
-                onChange = onMaxParallel
-            )
-        }
-        SettingDivider()
-        SettingRow(
-            title = SettingNames.WIFI_ONLY,
-            subtitle = "Wait for Wi-Fi, never use mobile data"
-        ) {
-            GlassSwitch(settings.wifiOnly, onWifiOnly)
-        }
-        SettingDivider()
-        SettingRow(
-            title = SettingNames.NOTIFICATIONS,
-            subtitle = "Tell me when a download is finished or failed"
-        ) {
-            GlassSwitch(settings.notifications, onNotifications)
-        }
-        SettingDivider()
-        SettingRow(
-            title = SettingNames.DOWNLOAD_FOLDER,
-            subtitle = "Save to: ${SaveLocation.folderLabel(settings.downloadFolder)}"
-        ) {
-            PillButton(
-                "Change",
-                onClick = {
-                    runCatching { folderLauncher.launch(null) }
-                        .onFailure { showMessage("No folder picker found on this phone") }
-                },
-                primary = false
-            )
-        }
-        if (settings.downloadFolder.isNotBlank()) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.End) {
-                PillButton("Use Downloads folder", onClick = { onDownloadFolder("") }, primary = false)
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 8.dp)
+                ) {
+                    SettingSection("General")
+                    SettingGroup {
+                        SettingRow(title = SettingNames.THEME, subtitle = "Day or AMOLED dark") {
+                            ThemeSegmented(settings.themeMode, onThemeMode)
+                        }
+                        SettingDivider()
+                        SettingRow(
+                            title = SettingNames.DOWNLOAD_FOLDER,
+                            subtitle = SaveLocation.folderLabel(settings.downloadFolder)
+                        ) {
+                            PillButton(
+                                "Change",
+                                onClick = {
+                                    runCatching { folderLauncher.launch(null) }
+                                        .onFailure { showMessage("No folder picker found on this phone") }
+                                },
+                                small = true
+                            )
+                        }
+                        if (settings.downloadFolder.isNotBlank()) {
+                            SettingDivider()
+                            SettingRow(title = "Default folder", subtitle = "Go back to the Downloads folder") {
+                                PillButton("Reset", onClick = { onDownloadFolder("") }, small = true)
+                            }
+                        }
+                        SettingDivider()
+                        SettingRow(title = SettingNames.MAX_PARALLEL, subtitle = "Files at the same time") {
+                            Stepper(
+                                value = settings.maxParallel,
+                                min = AppSettings.MIN_PARALLEL,
+                                max = AppSettings.MAX_PARALLEL,
+                                onChange = onMaxParallel
+                            )
+                        }
+                    }
+
+                    SettingSection("Network and alerts")
+                    SettingGroup {
+                        SettingRow(title = SettingNames.WIFI_ONLY, subtitle = "Never use mobile data") {
+                            GlassSwitch(settings.wifiOnly, onWifiOnly)
+                        }
+                        SettingDivider()
+                        SettingRow(title = SettingNames.NOTIFICATIONS, subtitle = "When finished or failed") {
+                            GlassSwitch(settings.notifications, onNotifications)
+                        }
+                    }
+
+                    SettingSection("Updates")
+                    SettingGroup {
+                        SettingRow(title = "Check automatically", subtitle = "Look for a new version") {
+                            GlassSwitch(settings.autoUpdateCheck, onAutoUpdate)
+                        }
+                        SettingDivider()
+                        UpdateSettingsRow(
+                            state = updateState,
+                            configured = updatesConfigured,
+                            onCheck = onCheckUpdate,
+                            onOpen = onOpenUpdate,
+                            onInstall = onInstallUpdate
+                        )
+                    }
+
+                    SettingSection("Backup")
+                    SettingGroup {
+                        SettingRow(title = "Export settings", subtitle = "Save to a file") {
+                            PillButton(
+                                "Export",
+                                onClick = { exportLauncher.launch(SettingsBackup.suggestedFileName()) },
+                                small = true
+                            )
+                        }
+                        SettingDivider()
+                        SettingRow(title = "Import settings", subtitle = "Restore from a file") {
+                            PillButton(
+                                "Import",
+                                onClick = { importLauncher.launch(arrayOf("*/*")) },
+                                small = true
+                            )
+                        }
+                    }
+                }
+
+                PillButton(
+                    "Done",
+                    onClick = onClose,
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 12.dp)
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                )
             }
-        }
-
-        SettingSection("Updates")
-        SettingRow(
-            title = SettingNames.AUTO_UPDATE_CHECK,
-            subtitle = "Look for a new version in the background and tell me"
-        ) {
-            GlassSwitch(settings.autoUpdateCheck, onAutoUpdate)
-        }
-        SettingDivider()
-        UpdateSettingsRow(
-            state = updateState,
-            configured = updatesConfigured,
-            onCheck = onCheckUpdate,
-            onOpen = onOpenUpdate,
-            onInstall = onInstallUpdate
-        )
-
-        SettingSection("Backup")
-        SettingRow(
-            title = "Export settings",
-            subtitle = "Save your settings to a file you can keep"
-        ) {
-            PillButton("Export", onClick = { exportLauncher.launch(SettingsBackup.suggestedFileName()) }, primary = false)
-        }
-        SettingDivider()
-        SettingRow(
-            title = "Import settings",
-            subtitle = "Restore settings from a Downly backup file"
-        ) {
-            PillButton("Import", onClick = { importLauncher.launch(arrayOf("*/*")) }, primary = false)
-        }
-
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "Downly ${appVersion(context)}".trim(),
-            color = Downly.colors.textSecondary,
-            fontSize = 13.sp,
-            modifier = Modifier.align(Alignment.CenterHorizontally)
-        )
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            PillButton("Done", onClick = onClose)
         }
     }
 }
 
-/** Small caps label that groups rows inside the Settings popup. */
+/** Small WHITE pill label above a settings group (black 10sp bold uppercase). */
 @Composable
 private fun SettingSection(title: String) {
-    Text(
-        title.uppercase(),
-        color = Downly.colors.text,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Bold,
-        letterSpacing = 1.sp,
-        modifier = Modifier.padding(top = 20.dp, bottom = 2.dp)
+    Box(
+        Modifier
+            .padding(start = 16.dp, top = 14.dp, bottom = 6.dp)
+            .whiteButton(CircleShape)
+            .padding(horizontal = 12.dp, vertical = 5.dp)
+    ) {
+        Text(
+            title.uppercase(),
+            color = Color.Black,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp
+        )
+    }
+}
+
+/** One glass group per section (radius 16, side margin 12). */
+@Composable
+private fun SettingGroup(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .glass(RoundedCornerShape(16.dp)),
+        content = content
     )
 }
 
 @Composable
 internal fun SettingRow(title: String, subtitle: String, control: @Composable () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, color = Downly.colors.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(2.dp))
-            Text(subtitle, color = Downly.colors.textSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+            Text(title, color = Downly.colors.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(subtitle, color = Downly.colors.textSecondary, fontSize = 11.sp, lineHeight = 15.sp)
         }
         control()
     }
@@ -1426,52 +1490,67 @@ internal fun SettingRow(title: String, subtitle: String, control: @Composable ()
 
 @Composable
 internal fun SettingDivider() {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.10f)))
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Downly.colors.divider))
 }
 
+/** White round "-" and "+" buttons (32 dp) with the number between them. */
 @Composable
 private fun Stepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         GlassIconButton(
-            icon = Icons.Rounded.Remove,
+            icon = DownlyIcons.Minus,
             description = "Fewer downloads",
             onClick = { onChange(value - 1) },
-            size = 34.dp,
+            size = 32.dp,
             enabled = value > min
         )
         Text(
             "$value",
             color = Downly.colors.text,
-            fontSize = 17.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
-            modifier = Modifier.widthIn(min = 32.dp)
+            modifier = Modifier.widthIn(min = 24.dp)
         )
         GlassIconButton(
-            icon = Icons.Rounded.Add,
+            icon = DownlyIcons.Plus,
             description = "More downloads",
             onClick = { onChange(value + 1) },
-            size = 34.dp,
+            size = 32.dp,
             enabled = value < max
         )
     }
 }
 
+/** Toggle 38x22: ON = white track + black knob, OFF = gray track + gray knob. */
 @Composable
 internal fun GlassSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val c = Downly.colors
-    Switch(
-        checked = checked,
-        onCheckedChange = onCheckedChange,
-        colors = SwitchDefaults.colors(
-            checkedThumbColor = Color.Black,
-            checkedTrackColor = Color.White,
-            checkedBorderColor = c.whiteBorder,
-            uncheckedThumbColor = c.paused,
-            uncheckedTrackColor = c.toggleOffTrack,
-            uncheckedBorderColor = c.toggleOffBorder
-        )
-    )
+    val knobX by animateDpAsState(if (checked) 19.dp else 3.dp, tween(160), label = "toggleKnob")
+    val track = RoundedCornerShape(11.dp)
+    Box(
+        Modifier
+            .heightIn(min = 40.dp)
+            .widthIn(min = 40.dp)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier
+                .size(width = 38.dp, height = 22.dp)
+                .clip(track)
+                .background(if (checked) Color.White else c.toggleOffTrack, track)
+                .border(1.dp, if (checked) c.whiteBorder else c.toggleOffBorder, track)
+        ) {
+            Box(
+                Modifier
+                    .offset(x = knobX - 1.dp, y = 2.dp)
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(if (checked) Color.Black else c.paused, CircleShape)
+            )
+        }
+    }
 }
 
 /** Shown under the header while the phone has no internet. */

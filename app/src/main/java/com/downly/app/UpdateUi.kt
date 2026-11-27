@@ -147,7 +147,7 @@ internal fun UpdateDialog(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     PillButton("Later", onClick = onClose, primary = false)
                     Spacer(Modifier.width(10.dp))
-                    PillButton("Install", onClick = onInstall)
+                    PillButton("Install", onClick = onInstall, small = true)
                 }
             }
 
@@ -189,16 +189,16 @@ internal fun UpdateSettingsRow(
         state is UpdateState.Downloading -> "Downloading ${percentText(state)}"
         state is UpdateState.ReadyToInstall -> "Version ${state.info.versionName} is ready to install"
         state is UpdateState.Error -> state.message
-        else -> "Current version ${BuildConfig.VERSION_NAME}"
+        else -> "Downly ${BuildConfig.VERSION_NAME}"
     }
-    SettingRow(title = "Check for updates", subtitle = subtitle) {
+    SettingRow(title = "Check now", subtitle = subtitle) {
         when {
             !configured || state is UpdateState.Checking -> Unit
-            state is UpdateState.Available -> PillButton("Update", onClick = onOpen)
-            state is UpdateState.Downloading -> PillButton("View", onClick = onOpen, primary = false)
-            state is UpdateState.ReadyToInstall -> PillButton("Install", onClick = onInstall)
-            state is UpdateState.Error && state.info != null -> PillButton("Details", onClick = onOpen, primary = false)
-            else -> PillButton("Check", onClick = onCheck, primary = false)
+            state is UpdateState.Available -> PillButton("Update", onClick = onOpen, small = true)
+            state is UpdateState.Downloading -> PillButton("View", onClick = onOpen, small = true)
+            state is UpdateState.ReadyToInstall -> PillButton("Install", onClick = onInstall, small = true)
+            state is UpdateState.Error && state.info != null -> PillButton("Details", onClick = onOpen, small = true)
+            else -> PillButton("Check", onClick = onCheck, small = true)
         }
     }
 }
