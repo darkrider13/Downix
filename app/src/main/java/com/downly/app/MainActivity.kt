@@ -47,7 +47,9 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
@@ -349,17 +351,11 @@ private fun MainScreen(
         }
     }
 
-    // The check starts 2 seconds after the app opens; if a new version is found the popup opens.
-    var updateAnnounced by rememberSaveable { mutableStateOf(false) }
+    // The check starts 2 seconds after the app opens. A new version only lights a small green dot on the
+    // Settings icon (no banner, no popup); the update itself is opened from Settings > Updates.
     LaunchedEffect(Unit) {
         delay(2000)
         vm.autoCheckForUpdates()
-    }
-    LaunchedEffect(updateState) {
-        if (updateState is UpdateState.Available && !updateAnnounced) {
-            updateAnnounced = true
-            showUpdate = true
-        }
     }
 
     // Permissions: notifications (Android 13+) and storage (Android 9 and below).
@@ -389,7 +385,10 @@ private fun MainScreen(
                 },
                 onPauseAll = vm::pauseAll,
                 onClearFinished = vm::clearFinished,
-                onSettings = { showSettings = true }
+                onSettings = { showSettings = true },
+                updatePending = updateState is UpdateState.Available ||
+                    updateState is UpdateState.Downloading ||
+                    updateState is UpdateState.ReadyToInstall
             )
             AnimatedVisibility(
                 visible = network == NetworkState.NONE,
@@ -397,15 +396,6 @@ private fun MainScreen(
                 exit = fadeOut(tween(150)) + shrinkVertically()
             ) {
                 OfflineBanner()
-            }
-            AnimatedVisibility(
-                visible = updateState is UpdateState.Available ||
-                    updateState is UpdateState.Downloading ||
-                    updateState is UpdateState.ReadyToInstall,
-                enter = fadeIn(tween(200)) + expandVertically(),
-                exit = fadeOut(tween(150)) + shrinkVertically()
-            ) {
-                UpdateBanner(state = updateState, onClick = { showUpdate = true })
             }
             if (downloads.isNotEmpty()) {
                 FilterBar(
@@ -484,8 +474,8 @@ private fun MainScreen(
 
         AnimatedVisibility(
             visible = toastText != null,
-            enter = fadeIn(tween(200)) + slideInVertically(tween(260)) { it },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it },
+            enter = fadeIn(tween(130)) + slideInVertically(tween(170)) { it / 4 },
+            exit = fadeOut(tween(110)),
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .navigationBarsPadding()
@@ -595,7 +585,8 @@ private fun Header(
     onSearch: () -> Unit,
     onPauseAll: () -> Unit,
     onClearFinished: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    updatePending: Boolean = false
 ) {
     val c = Downly.colors
     val active = downloads.count { it.isActive }
@@ -638,12 +629,21 @@ private fun Header(
             onClick = onClearFinished,
             enabled = finished > 0
         )
-        PlainIconButton(
-            icon = DownlyIcons.Settings,
-            description = "Settings",
-            tint = c.text,
-            onClick = onSettings
-        )
+        Box {
+            PlainIconButton(
+                icon = DownlyIcons.Settings,
+                description = if (updatePending) "Settings, update available" else "Settings",
+                tint = c.text,
+                onClick = onSettings
+            )
+            if (updatePending) {
+                // small green dot with a thin ring around it (a light gap between dot and line)
+                Canvas(Modifier.align(Alignment.TopEnd).padding(top = 5.dp, end = 5.dp).size(12.dp)) {
+                    drawCircle(c.green, radius = 3.5.dp.toPx())
+                    drawCircle(c.green.copy(alpha = 0.5f), radius = 5.5.dp.toPx(), style = Stroke(width = 1.dp.toPx()))
+                }
+            }
+        }
     }
 }
 
@@ -1307,8 +1307,8 @@ private fun SettingsScreen(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 0.dp)
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                        .padding(start = 8.dp, end = 12.dp, top = 4.dp, bottom = 0.dp)
+                        .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     PlainIconButton(
@@ -1342,7 +1342,6 @@ private fun SettingsScreen(
                         .weight(1f)
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
-                        .navigationBarsPadding()
                         .padding(bottom = 8.dp)
                 ) {
                     SettingSection("General", first = true)
@@ -1353,7 +1352,7 @@ private fun SettingsScreen(
                         SettingDivider()
                         SettingRow(
                             title = SettingNames.DOWNLOAD_FOLDER,
-                            subtitle = SaveLocation.folderLabel(draft.downloadFolder)
+                            subtitle = SaveLocation.folderPath(draft.downloadFolder)
                         ) {
                             PillButton(
                                 "Change",
@@ -1397,10 +1396,9 @@ private fun SettingsScreen(
                         )
                     }
 
-                    Spacer(Modifier.height(32.dp))
-                    DeveloperCredit()
-                    Spacer(Modifier.height(12.dp))
                 }
+
+                DeveloperCredit(Modifier.navigationBarsPadding().padding(top = 8.dp, bottom = 14.dp))
             }
         }
     }
@@ -1441,7 +1439,14 @@ internal fun SettingRow(title: String, subtitle: String, control: @Composable ()
     ) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
             Text(title, color = Downly.colors.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            Text(subtitle, color = Downly.colors.textSecondary, fontSize = 11.sp, lineHeight = 15.sp)
+            Text(
+                subtitle,
+                color = Downly.colors.textSecondary,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
         control()
     }

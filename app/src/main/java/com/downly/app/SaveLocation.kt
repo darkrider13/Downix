@@ -17,6 +17,7 @@ object SaveLocation {
 
     const val DEFAULT_LABEL = "Downloads"
     private const val OTHER_LABEL = "Chosen folder"
+    private const val INTERNAL = "Internal storage"
     private const val STORAGE_AUTHORITY = "com.android.externalstorage.documents"
     private const val DOWNLOADS_AUTHORITY = "com.android.providers.downloads.documents"
 
@@ -56,6 +57,29 @@ object SaveLocation {
         return runCatching {
             val tree = Uri.parse(folder)
             label(tree.authority, DocumentsContract.getTreeDocumentId(tree))
+        }.getOrDefault(OTHER_LABEL)
+    }
+
+    /**
+     * Full readable path for Settings: "Internal storage/Movies", "SD card/Movies/New".
+     * Blank (default) = "Internal storage/Download".
+     */
+    fun folderPath(folder: String): String {
+        if (folder.isBlank()) return "$INTERNAL/Download"
+        return runCatching {
+            val tree = Uri.parse(folder)
+            if (tree.authority == DOWNLOADS_AUTHORITY) return@runCatching "$INTERNAL/Download"
+            if (tree.authority != STORAGE_AUTHORITY) return@runCatching OTHER_LABEL
+            val id = DocumentsContract.getTreeDocumentId(tree)
+            if (':' !in id) return@runCatching OTHER_LABEL
+            val root = id.substringBefore(':')
+            val path = id.substringAfter(':').trim('/')
+            val base = when (root) {
+                "primary" -> INTERNAL
+                "home" -> "$INTERNAL/Documents"
+                else -> "SD card"
+            }
+            if (path.isEmpty()) base else "$base/$path"
         }.getOrDefault(OTHER_LABEL)
     }
 

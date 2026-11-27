@@ -897,7 +897,7 @@ internal fun DownlyToast(text: String, modifier: Modifier = Modifier) {
     Row(
         modifier
             .fillMaxWidth()
-            .glass(RoundedCornerShape(24.dp), strong = true)
+            .glass(RoundedCornerShape(24.dp), strong = true, flat = true)
             .heightIn(min = 48.dp)
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically

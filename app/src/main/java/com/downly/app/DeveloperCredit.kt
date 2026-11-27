@@ -35,7 +35,7 @@ internal object DeveloperInfo {
 }
 
 @Composable
-internal fun DeveloperCredit() {
+internal fun DeveloperCredit(modifier: Modifier = Modifier) {
     val c = Downly.colors
     val context = LocalContext.current
     val open: (String) -> Unit = { link ->
@@ -45,41 +45,43 @@ internal fun DeveloperCredit() {
             }
         }
     }
+    // Small and quiet, like the reference: bold name, three plain icons (no circles), faint copyright line.
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+        modifier.fillMaxWidth().padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             "Developed by ${DeveloperInfo.NAME}",
             color = c.text,
-            fontSize = 14.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center
         )
-        Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.padding(top = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             CreditIcon(DownlyIcons.WhatsApp, "WhatsApp") { open(DeveloperInfo.WHATSAPP) }
             CreditIcon(DownlyIcons.Instagram, "Instagram") { open(DeveloperInfo.INSTAGRAM) }
             CreditIcon(DownlyIcons.Telegram, "Telegram") { open(DeveloperInfo.TELEGRAM) }
         }
-        Spacer(Modifier.height(10.dp))
         Text(
             "\u00A9 Copyright ${DeveloperInfo.NAME}. All rights reserved.",
             color = c.textSecondary,
-            fontSize = 11.sp,
-            lineHeight = 15.sp,
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
             textAlign = TextAlign.Center
         )
     }
 }
 
-/** Clear round white button with a black icon: easy to see and to tap (44 dp). */
 @Composable
 private fun CreditIcon(icon: ImageVector, description: String, onClick: () -> Unit) {
-    GlassIconButton(
+    PlainIconButton(
         icon = icon,
         description = description,
-        onClick = onClick,
-        size = 44.dp
+        tint = Downly.colors.text,
+        onClick = onClick
     )
 }
