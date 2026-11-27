@@ -115,6 +115,10 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -386,6 +390,69 @@ internal fun Modifier.glass(
         }
         .border(1.dp, c.glassBorder, shape)
 }
+
+/**
+ * Soft fade at the top and bottom edge of a scrolling list, for Day and Night alike.
+ * The cards themselves are faded out with a gradient mask (not covered by a coloured strip), so they melt
+ * into whatever background is behind them. The top fade appears only once the list is scrolled away from the
+ * start, the bottom fade only while more cards wait below; both grow smoothly with the scroll position and are
+ * read only while drawing, so scrolling never recomposes anything.
+ */
+internal fun Modifier.listEdgeFade(
+    state: LazyListState,
+    top: Dp = 30.dp,
+    bottom: Dp = 120.dp
+): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val topPx = top.toPx()
+        val bottomPx = bottom.toPx()
+        val ramp = 48.dp.toPx() // how far a card must travel past the edge for the fade to be at full strength
+        val info = state.layoutInfo
+
+        val topStrength =
+            if (state.firstVisibleItemIndex > 0) 1f
+            else (state.firstVisibleItemScrollOffset / ramp).coerceIn(0f, 1f)
+
+        val last = info.visibleItemsInfo.lastOrNull()
+        val bottomStrength =
+            if (last == null) 0f
+            else if (last.index < info.totalItemsCount - 1) 1f
+            else {
+                val contentEnd = (last.offset + last.size).toFloat()
+                val restLine = (info.viewportEndOffset - info.afterContentPadding).toFloat()
+                ((contentEnd - restLine) / ramp).coerceIn(0f, 1f)
+            }
+
+        // Smooth (ease-like) alpha curve: 1 = keep the card, 0 = fully faded
+        val curve = floatArrayOf(1f, 0.92f, 0.72f, 0.42f, 0.16f, 0f)
+        fun faded(strength: Float, a: Float) = Color.Black.copy(alpha = 1f - strength * (1f - a))
+
+        if (topStrength > 0.001f) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = curve.reversed().map { faded(topStrength, it) },
+                    startY = 0f,
+                    endY = topPx
+                ),
+                size = Size(size.width, topPx),
+                blendMode = BlendMode.DstIn
+            )
+        }
+        if (bottomStrength > 0.001f) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = curve.map { faded(bottomStrength, it) },
+                    startY = size.height - bottomPx,
+                    endY = size.height
+                ),
+                topLeft = Offset(0f, size.height - bottomPx),
+                size = Size(size.width, bottomPx),
+                blendMode = BlendMode.DstIn
+            )
+        }
+    }
 
 /** WHITE button surface: the default look for normal actions. */
 internal fun Modifier.whiteButton(shape: Shape = CircleShape): Modifier = composed {

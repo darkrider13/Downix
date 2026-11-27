@@ -543,7 +543,7 @@ private fun MainScreen(
                         val cardHeight = with(density) { cardPx.toDp() }
                         LazyColumn(
                             state = listState,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().listEdgeFade(listState),
                             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 100.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
