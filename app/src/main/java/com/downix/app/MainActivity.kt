@@ -181,7 +181,7 @@ import java.io.InputStream
 
 class MainActivity : ComponentActivity() {
 
-    /** A link shared into the app from another app (Share > Downix). */
+    /** A link sent into the app from another app (Share > Downix, or "Open with" > Downix). */
     private var pendingLink by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -225,9 +225,14 @@ class MainActivity : ComponentActivity() {
         pendingLink = linkFromIntent(intent)
     }
 
-    private fun linkFromIntent(intent: Intent?): String? {
-        if (intent?.action != Intent.ACTION_SEND) return null
-        return extractLink(intent.getStringExtra(Intent.EXTRA_TEXT))
+    private fun linkFromIntent(intent: Intent?): String? = when (intent?.action) {
+        // Share > Downix
+        Intent.ACTION_SEND -> extractLink(intent.getStringExtra(Intent.EXTRA_TEXT))
+        // a download link tapped in another app, Downix picked in "Open with"
+        Intent.ACTION_VIEW -> intent.data
+            ?.takeIf { it.scheme.equals("http", true) || it.scheme.equals("https", true) }
+            ?.toString()
+        else -> null
     }
 }
 
