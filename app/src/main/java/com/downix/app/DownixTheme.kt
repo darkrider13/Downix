@@ -1021,9 +1021,8 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
 }
 
 /**
- * Bottom sheet from the design: glass, margin 8, radius 24, drag handle 36x4.
- * Opens with a smooth slide-up. Closes by: swiping the sheet down, tapping anywhere outside it, or Back.
- * Every close slides down smoothly. Moves above the keyboard.
+ * No bottom sheets any more: every old "sheet" (Delete, Update, Details, Cancel, Clear...) now opens as the same
+ * centred popup as "Add link". The name is kept so every existing call site keeps working unchanged.
  */
 @Composable
 internal fun GlassBottomSheet(
@@ -1032,151 +1031,7 @@ internal fun GlassBottomSheet(
     instant: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val c = Downix.colors
-    val scope = rememberCoroutineScope()
-    val density = LocalDensity.current
-    // progress: 0 = hidden, 1 = shown. dragPx: how far the finger pulled the sheet down.
-    // Both are read only while drawing, so nothing is recomposed while the sheet moves.
-    val progress = remember { Animatable(if (instant) 1f else 0f) }
-    var dragPx by remember { mutableFloatStateOf(0f) }
-    var sheetH by remember { mutableFloatStateOf(0f) }
-    var closing by remember { mutableStateOf(false) }
-    val currentOnDismiss by rememberUpdatedState(onDismiss)
-
-    // Starts after the first frame is ready, so the heavy first frame does not eat the animation.
-    LaunchedEffect(Unit) {
-        if (instant) return@LaunchedEffect
-        withFrameNanos { }
-        progress.animateTo(1f, tween(240, easing = FastOutSlowInEasing))
-    }
-
-    // Every close is instant (no slide-down animation): tap outside, Back, swipe down, all dismiss at once.
-    val closeAll: () -> Unit = {
-        if (!closing) {
-            closing = true
-            currentOnDismiss()
-        }
-    }
-    // Finger released after a swipe down: far enough or fast enough = close at once, otherwise spring back.
-    val settle: (Float) -> Unit = { velocity ->
-        if (!closing) {
-            if (dragPx > sheetH * 0.22f || velocity > 900f) {
-                closeAll()
-            } else {
-                scope.launch {
-                    animate(dragPx, 0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f)) { v, _ -> dragPx = v }
-                }
-            }
-        }
-    }
-
-    // Lets the sheet follow a downward swipe once its own content is at the top.
-    val connection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (available.y < 0f && dragPx > 0f) {
-                    val used = minOf(-available.y, dragPx)
-                    dragPx -= used
-                    return Offset(0f, -used)
-                }
-                return Offset.Zero
-            }
-
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (available.y > 0f && source == NestedScrollSource.Drag) {
-                    dragPx += available.y
-                    return Offset(0f, available.y)
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                if (dragPx > 0f) {
-                    settle(available.y)
-                    return available
-                }
-                return Velocity.Zero
-            }
-        }
-    }
-
-    Dialog(
-        onDismissRequest = closeAll,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
-    ) {
-        if (instant) {
-            DisposableEffect(Unit) {
-                PopupLayers.instant++
-                onDispose { PopupLayers.instant-- }
-            }
-        }
-        val covered = rememberPopupCovered(closing)
-        Box(
-            Modifier
-                .fillMaxSize()
-                .blurWhen(covered)
-                .drawBehind {
-                    val pulled = if (sheetH > 0f) (dragPx / sheetH).coerceIn(0f, 1f) else 0f
-                    drawRect(c.scrim, alpha = (progress.value * (1f - pulled)).coerceIn(0f, 1f))
-                }
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = closeAll
-                ),
-            contentAlignment = Alignment.BottomCenter
-        ) {
-            Column(
-                Modifier
-                    .graphicsLayer {
-                        translationY = (1f - progress.value) * (size.height + 48.dp.toPx()) + dragPx
-                    }
-                    // Sits flat on the bottom edge of the screen (no gap above the navigation bar); only the
-                    // top corners are round. The navigation bar area is padded inside the sheet below.
-                    .imePadding()
-                    .widthIn(max = 480.dp)
-                    .fillMaxWidth()
-                    .onSizeChanged { sheetH = it.height.toFloat() }
-                    .glass(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), strong = true, flat = true)
-                    // swallow taps so they do not reach the scrim
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {}
-                    )
-                    .nestedScroll(connection)
-                    .padding(start = 16.dp, end = 16.dp, top = 0.dp)
-                    .windowInsetsPadding(WindowInsets.navigationBars.exclude(WindowInsets.ime))
-                    .padding(bottom = 12.dp)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.Start
-            ) {
-                // Handle + title: a bigger grab area that also drags the sheet down.
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .draggable(
-                            state = rememberDraggableState { delta -> dragPx = (dragPx + delta).coerceAtLeast(0f) },
-                            orientation = Orientation.Vertical,
-                            onDragStopped = { velocity -> settle(velocity) }
-                        )
-                ) {
-                    Box(
-                        Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .padding(top = 10.dp)
-                            .size(width = 36.dp, height = 4.dp)
-                            .clip(CircleShape)
-                            .background(c.textSecondary.copy(alpha = 0.55f))
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    Text(title, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(12.dp))
-                }
-                content()
-            }
-        }
-    }
+    GlassCenterDialog(onDismiss = onDismiss, title = title, instant = instant, content = content)
 }
 
 /**
@@ -1188,6 +1043,7 @@ internal fun GlassBottomSheet(
 internal fun GlassCenterDialog(
     onDismiss: () -> Unit,
     title: String,
+    instant: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val c = Downix.colors
@@ -1196,9 +1052,16 @@ internal fun GlassCenterDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
         // Starts after the first frame is ready (no jump), drives scrim + card from one value.
-        val progress = remember { Animatable(0f) }
+        val progress = remember { Animatable(if (instant) 1f else 0f) }
+        if (instant) {
+            DisposableEffect(Unit) {
+                PopupLayers.instant++
+                onDispose { PopupLayers.instant-- }
+            }
+        }
         val covered = rememberPopupCovered()
         LaunchedEffect(Unit) {
+            if (instant) return@LaunchedEffect
             withFrameNanos { }
             progress.animateTo(1f, tween(150, easing = FastOutSlowInEasing))
         }
