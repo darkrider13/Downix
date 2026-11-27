@@ -10,7 +10,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.DisposableEffect
@@ -129,7 +128,6 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -198,34 +196,25 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) pendingLink = linkFromIntent(intent)
-        val settingsRepo = SettingsRepository.get(this)
-
         setContent {
-            val settings by settingsRepo.settings.collectAsStateWithLifecycle()
-            val dark = settings.themeMode.isDark(isSystemInDarkTheme())
-
-            // Status / navigation bar icons follow Day or Dark.
-            DisposableEffect(dark) {
-                // Window colour behind the UI follows the chosen mode (no black flash in Day mode).
-                window.setBackgroundDrawable(
-                    android.graphics.drawable.ColorDrawable(if (dark) 0xFF000000.toInt() else 0xFFE8EEF5.toInt())
-                )
+            // The app is Dark only (AMOLED black). Status / navigation bar icons are always light.
+            DisposableEffect(Unit) {
+                window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0xFF000000.toInt()))
                 enableEdgeToEdge(
-                    statusBarStyle = SystemBarStyle.auto(
-                        android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT
-                    ) { dark },
-                    navigationBarStyle = SystemBarStyle.auto(
-                        android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT
-                    ) { dark }
+                    statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+                    navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
                 )
                 onDispose { }
             }
 
-            DownixTheme(settings.themeMode) {
-                MainScreen(
-                    sharedLink = pendingLink,
-                    onSharedLinkConsumed = { pendingLink = null }
-                )
+            DownixTheme {
+                Box(Modifier.fillMaxSize()) {
+                    MainScreen(
+                        sharedLink = pendingLink,
+                        onSharedLinkConsumed = { pendingLink = null }
+                    )
+                    PopupScrim()
+                }
             }
         }
     }
@@ -317,7 +306,6 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
         if (new.wifiOnly != old.wifiOnly) settingsRepo.setWifiOnly(new.wifiOnly)
         if (new.notifications != old.notifications) settingsRepo.setNotifications(new.notifications)
         if (new.downloadFolder != old.downloadFolder) settingsRepo.setDownloadFolder(new.downloadFolder)
-        if (new.themeMode != old.themeMode) settingsRepo.setThemeMode(new.themeMode)
     }
 
     /* ---------------------------- updates ---------------------------- */
@@ -1654,10 +1642,6 @@ private fun SettingsScreen(
                         Column(Modifier.onSizeChanged { contentPx = it.height }.padding(bottom = 8.dp)) {
                         SettingSection("General", first = true)
                         SettingGroup {
-                            SettingRow(title = SettingNames.THEME, subtitle = "") {
-                                ThemeSegmented(settings.themeMode) { onApply(settings.copy(themeMode = it)) }
-                            }
-                            SettingDivider()
                             SettingRow(
                                 title = SettingNames.DOWNLOAD_FOLDER,
                                 subtitle = SaveLocation.folderPath(settings.downloadFolder)

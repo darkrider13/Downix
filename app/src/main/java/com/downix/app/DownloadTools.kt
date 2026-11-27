@@ -116,7 +116,7 @@ internal fun FilterBar(
     }
 }
 
-/** 32 dp chip, radius 16. Selected = white (dark mode) or deep ink (day mode) with bold text, others = glass. */
+/** 32 dp chip, radius 16. Selected = white with bold text, others = glass. */
 @Composable
 private fun FilterPill(
     label: String,

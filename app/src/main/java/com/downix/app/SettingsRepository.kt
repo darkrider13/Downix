@@ -11,8 +11,7 @@ data class AppSettings(
     val maxParallel: Int = DEFAULT_PARALLEL,
     val wifiOnly: Boolean = false,
     val notifications: Boolean = true,
-    val downloadFolder: String = "", // picked folder (tree URI), blank = Downloads
-    val themeMode: ThemeMode = ThemeMode.AUTO // Auto / Day / Dark
+    val downloadFolder: String = "" // picked folder (tree URI), blank = Downloads
 ) {
     companion object {
         const val MIN_PARALLEL = 1
@@ -29,7 +28,6 @@ object SettingNames {
     const val WIFI_ONLY = "Wi-Fi only"
     const val NOTIFICATIONS = "Notifications"
     const val DOWNLOAD_FOLDER = "Download folder"
-    const val THEME = "Theme"
 }
 
 /**
@@ -63,11 +61,6 @@ class SettingsRepository private constructor(context: Context) {
         _settings.update { it.copy(notifications = enabled) }
     }
 
-    fun setThemeMode(mode: ThemeMode) {
-        prefs.edit().putString(KEY_THEME, mode.key).apply()
-        _settings.update { it.copy(themeMode = mode) }
-    }
-
     /** [folderUri] blank = back to the Downloads folder. */
     fun setDownloadFolder(folderUri: String) {
         prefs.edit().putString(KEY_FOLDER, folderUri).apply()
@@ -79,8 +72,7 @@ class SettingsRepository private constructor(context: Context) {
             .coerceIn(AppSettings.MIN_PARALLEL, AppSettings.MAX_PARALLEL),
         wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false),
         notifications = prefs.getBoolean(KEY_NOTIFICATIONS, true),
-        downloadFolder = prefs.getString(KEY_FOLDER, "").orEmpty(),
-        themeMode = ThemeMode.fromKey(prefs.getString(KEY_THEME, null))
+        downloadFolder = prefs.getString(KEY_FOLDER, "").orEmpty()
     )
 
     companion object {
@@ -89,7 +81,6 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_WIFI_ONLY = "wifi_only"
         private const val KEY_NOTIFICATIONS = "notifications"
         private const val KEY_FOLDER = "download_folder"
-        private const val KEY_THEME = "theme_mode"
 
         @Volatile private var instance: SettingsRepository? = null
 

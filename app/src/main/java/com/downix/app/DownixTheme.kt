@@ -74,7 +74,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -100,7 +99,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -143,26 +141,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
 /* ------------------------------------------------------------------ */
-/*  Downix UI theme: Day + AMOLED Dark (from the Downix_Design_AI pack) */
-/*  Same layout in both modes, only these colours change.              */
+/*  Downix UI theme: AMOLED Dark (from the Downix_Design_AI pack) */
+/*  Dark only.                                                         */
 /* ------------------------------------------------------------------ */
-
-/** What the user picks in Settings > Theme. AUTO follows the phone. */
-enum class ThemeMode(val label: String, val key: String) {
-    AUTO("Auto", "auto"),
-    DAY("Day", "day"),
-    DARK("Dark", "dark");
-
-    fun isDark(systemDark: Boolean): Boolean = when (this) {
-        AUTO -> systemDark
-        DAY -> false
-        DARK -> true
-    }
-
-    companion object {
-        fun fromKey(key: String?): ThemeMode = values().firstOrNull { it.key == key } ?: AUTO
-    }
-}
 
 @Immutable
 class DownixColors(
@@ -220,32 +201,6 @@ val DownixDark = DownixColors(
     onSelected = Black
 )
 
-val DownixDay = DownixColors(
-    isDark = false,
-    background = Color(0xFFE8EEF5),
-    text = Color(0xFF101828),
-    textSecondary = Color(0xFF465063),
-    glassFill = White.copy(alpha = 0.48f),
-    glassBorder = White.copy(alpha = 0.95f),
-    glassHighlight = Color.Transparent,
-    green = Color(0xFF007000),
-    greenBar = Color(0xFF008A00),
-    onGreen = White,
-    red = Color(0xFFC40000),
-    onRed = White,
-    track = Color(0xFF101828).copy(alpha = 0.10f),
-    paused = Color(0xFF7D8594),
-    divider = Color(0xFF101828).copy(alpha = 0.09f),
-    sheetFill = Color(0xFFF8F9FD), // fully solid
-    scrim = Color(0xFF141828).copy(alpha = 0.46f),
-    plusOverlay = Color(0xFFE8ECF8).copy(alpha = 0.52f),
-    whiteBorder = Color(0xFF101828).copy(alpha = 0.16f),
-    toggleOffTrack = Color(0xFF101828).copy(alpha = 0.10f),
-    toggleOffBorder = Color(0xFF101828).copy(alpha = 0.09f),
-    selected = Color(0xFF1B2438),
-    onSelected = White
-)
-
 val LocalDownixColors = staticCompositionLocalOf { DownixDark }
 
 /** Short access: `val c = Downix.colors` inside any composable. */
@@ -257,26 +212,15 @@ object Downix {
 }
 
 @Composable
-fun DownixTheme(mode: ThemeMode, content: @Composable () -> Unit) {
-    val dark = mode.isDark(isSystemInDarkTheme())
-    val colors = if (dark) DownixDark else DownixDay
-    val scheme = if (dark) {
-        darkColorScheme(
-            primary = colors.text,
-            onPrimary = colors.background,
-            background = colors.background,
-            surface = colors.background,
-            onSurface = colors.text
-        )
-    } else {
-        lightColorScheme(
-            primary = colors.text,
-            onPrimary = colors.background,
-            background = colors.background,
-            surface = colors.background,
-            onSurface = colors.text
-        )
-    }
+fun DownixTheme(content: @Composable () -> Unit) {
+    val colors = DownixDark
+    val scheme = darkColorScheme(
+        primary = colors.text,
+        onPrimary = colors.background,
+        background = colors.background,
+        surface = colors.background,
+        onSurface = colors.text
+    )
     CompositionLocalProvider(LocalDownixColors provides colors) {
         MaterialTheme(colorScheme = scheme, content = content)
     }
@@ -495,15 +439,8 @@ internal fun Modifier.whiteButton(shape: Shape = CircleShape): Modifier = compos
         .border(1.dp, c.whiteBorder, shape)
 }
 
-/**
- * Surface of a SELECTED chip / segment. Dark mode keeps the white pill; Day mode uses a deep ink pill with
- * white text, so it matches the soft pastel background instead of looking like a washed-out white blob.
- */
-internal fun Modifier.selectedSurface(shape: Shape): Modifier = composed {
-    val c = Downix.colors
-    if (c.isDark) this.whiteButton(shape)
-    else this.clip(shape).background(c.selected, shape)
-}
+/** Surface of a SELECTED chip / segment: the white pill. */
+internal fun Modifier.selectedSurface(shape: Shape): Modifier = this.whiteButton(shape)
 
 /** Soft press feedback (spring scale) for every tappable element. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -861,40 +798,6 @@ internal fun PillButton(
     }
 }
 
-/** Auto / Day / Dark switch used in Settings. Selected = white pill. */
-@Composable
-internal fun ThemeSegmented(selected: ThemeMode, onSelect: (ThemeMode) -> Unit) {
-    val c = Downix.colors
-    // Auto is gone from the choices; a phone still on the old Auto setting shows the mode it is following.
-    val systemDark = isSystemInDarkTheme()
-    val shown = if (selected == ThemeMode.AUTO) (if (systemDark) ThemeMode.DARK else ThemeMode.DAY) else selected
-    val shape = RoundedCornerShape(18.dp)
-    Row(
-        Modifier.glass(shape).padding(2.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        ThemeMode.values().filter { it != ThemeMode.AUTO }.forEach { mode ->
-            val on = mode == shown
-            val pill = RoundedCornerShape(15.dp)
-            Box(
-                Modifier
-                    .heightIn(min = 30.dp)
-                    .then(if (on) Modifier.selectedSurface(pill) else Modifier.clip(pill))
-                    .pressable { onSelect(mode) }
-                    .padding(horizontal = 11.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    mode.label,
-                    color = if (on) c.onSelected else c.textSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
-
 /** Pop-up container (still used by the dialogs that get their bottom-sheet look in the next steps). */
 @Composable
 internal fun GlassDialog(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
@@ -934,6 +837,17 @@ internal object PopupLayers {
 }
 
 /**
+ * The dark dim behind every popup. It is drawn inside the app screen (not inside the popup window), so it covers
+ * the WHOLE screen: status bar and navigation bar area included, on every phone. Two open popups dim twice.
+ */
+@Composable
+internal fun PopupScrim() {
+    val c = Downix.colors
+    val layers = PopupLayers.count
+    Box(Modifier.fillMaxSize().drawBehind { repeat(layers) { drawRect(c.scrim) } })
+}
+
+/**
  * Popups no longer blur what is behind them: they only dim it with the dark scrim (the same look older Android
  * versions always had). The function is kept (it does nothing) so every existing call site keeps working.
  */
@@ -969,16 +883,15 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
     }
     val view = LocalView.current
     val window = (view.parent as? DialogWindowProvider)?.window
-    val darkBars = Downix.colors.isDark
     SideEffect {
         window ?: return@SideEffect
         // no system pop / fade animation when the popup window closes
         if (window.attributes.windowAnimations != 0) window.setWindowAnimations(0)
-        // System bar icons follow Day / Dark inside the popup window too (the popup window is the focused window,
+        // Light system bar icons inside the popup window too (the popup window is the focused window,
         // so it decides how the status bar and the navigation bar look while it is open).
         androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
-            isAppearanceLightStatusBars = !darkBars
-            isAppearanceLightNavigationBars = !darkBars
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
         }
         // already prepared: do not touch the window again on every recomposition (that causes flicker)
         val attrs = window.attributes
@@ -1080,13 +993,14 @@ internal fun GlassCenterDialog(
             progress.animateTo(1f, tween(150, easing = FastOutSlowInEasing))
         }
 
+        // The dark dim behind the popup is NOT drawn here: a popup window can end above the navigation bar on some
+        // phones, which left a light strip at the bottom. The dim is drawn by [PopupScrim] inside the app screen,
+        // which always reaches the real screen edges.
         // The card never moves: no keyboard shift, no scale, only a fade. It stays fixed at the centre.
         Box(
             Modifier
                 .fillMaxSize()
                 .blurWhen(covered)
-                // read in the draw phase: the screen is not recomposed on every animation frame
-                .drawBehind { drawRect(c.scrim, alpha = progress.value) }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -1103,6 +1017,12 @@ internal fun GlassCenterDialog(
                     .widthIn(max = 420.dp)
                     .fillMaxWidth()
                     .glass(RoundedCornerShape(24.dp), strong = true, flat = true)
+                    // another popup is open above this one: this card dims too
+                    .clip(RoundedCornerShape(24.dp))
+                    .drawWithContent {
+                        drawContent()
+                        if (covered) drawRect(c.scrim)
+                    }
                     // swallow taps so they do not reach the scrim
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
