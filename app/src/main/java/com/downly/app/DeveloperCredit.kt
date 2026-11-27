@@ -56,8 +56,8 @@ internal fun DeveloperCredit() {
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center
         )
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
             CreditIcon(DownlyIcons.WhatsApp, "WhatsApp") { open(DeveloperInfo.WHATSAPP) }
             CreditIcon(DownlyIcons.Instagram, "Instagram") { open(DeveloperInfo.INSTAGRAM) }
             CreditIcon(DownlyIcons.Telegram, "Telegram") { open(DeveloperInfo.TELEGRAM) }
@@ -73,12 +73,13 @@ internal fun DeveloperCredit() {
     }
 }
 
+/** Clear round white button with a black icon: easy to see and to tap (44 dp). */
 @Composable
 private fun CreditIcon(icon: ImageVector, description: String, onClick: () -> Unit) {
-    AnimatedIconButton(
+    GlassIconButton(
         icon = icon,
         description = description,
-        tint = Downly.colors.text,
-        onClick = onClick
+        onClick = onClick,
+        size = 44.dp
     )
 }

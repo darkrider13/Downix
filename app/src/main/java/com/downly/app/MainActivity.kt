@@ -1367,6 +1367,7 @@ private fun SettingsScreen(
                         .weight(1f)
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
+                        .navigationBarsPadding()
                         .padding(bottom = 8.dp)
                 ) {
                     SettingSection("General")
@@ -1425,16 +1426,6 @@ private fun SettingsScreen(
                     DeveloperCredit()
                     Spacer(Modifier.height(12.dp))
                 }
-
-                PillButton(
-                    "Done",
-                    onClick = onClose,
-                    modifier = Modifier
-                        .navigationBarsPadding()
-                        .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 12.dp)
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                )
             }
         }
     }
@@ -1486,32 +1477,76 @@ internal fun SettingDivider() {
     Box(Modifier.fillMaxWidth().height(1.dp).background(Downly.colors.divider))
 }
 
-/** Plain "-" and "+" (no background) with the number between them. */
+/**
+ * Compact "-" / "+" with the number between them. Small 14 dp icons, but a clear tap animation:
+ * a quick squeeze on press, a soft glow ring that pops out, and the number rolls up / down.
+ */
 @Composable
 private fun Stepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
     val c = Downly.colors
     Row(verticalAlignment = Alignment.CenterVertically) {
-        AnimatedIconButton(
-            icon = DownlyIcons.Minus,
-            description = "Fewer downloads",
+        StepButton(DownlyIcons.Minus, "Fewer downloads", enabled = value > min) { onChange(value - 1) }
+        AnimatedContent(
+            targetState = value,
+            transitionSpec = {
+                val up = targetState > initialState
+                (slideInVertically(tween(180)) { if (up) it else -it } + fadeIn(tween(180))) togetherWith
+                    (slideOutVertically(tween(180)) { if (up) -it else it } + fadeOut(tween(120)))
+            },
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.widthIn(min = 22.dp),
+            label = "stepperValue"
+        ) { shown ->
+            Text(
+                "$shown",
+                color = c.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        }
+        StepButton(DownlyIcons.Plus, "More downloads", enabled = value < max) { onChange(value + 1) }
+    }
+}
+
+@Composable
+private fun StepButton(icon: ImageVector, description: String, enabled: Boolean, onClick: () -> Unit) {
+    val c = Downly.colors
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.6f else 1f,
+        animationSpec = spring(dampingRatio = 0.4f, stiffness = 700f),
+        label = "stepScale"
+    )
+    val ring by animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = tween(if (pressed) 90 else 260),
+        label = "stepRing"
+    )
+    val alpha by animateFloatAsState(if (enabled) 1f else 0.3f, tween(200), label = "stepAlpha")
+    Box(
+        Modifier
+            .size(36.dp)
+            .graphicsLayer { this.alpha = alpha }
+            .clickable(
+                interactionSource = source,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick
+            )
+            .drawBehind {
+                // soft ring behind the icon while pressed
+                drawCircle(c.text.copy(alpha = 0.16f * ring), radius = size.minDimension / 2f * (0.55f + 0.45f * ring))
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            icon,
+            contentDescription = description,
             tint = c.text,
-            onClick = { onChange(value - 1) },
-            enabled = value > min
-        )
-        Text(
-            "$value",
-            color = c.text,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.widthIn(min = 24.dp)
-        )
-        AnimatedIconButton(
-            icon = DownlyIcons.Plus,
-            description = "More downloads",
-            tint = c.text,
-            onClick = { onChange(value + 1) },
-            enabled = value < max
+            modifier = Modifier.size(15.dp).graphicsLayer { scaleX = scale; scaleY = scale }
         )
     }
 }

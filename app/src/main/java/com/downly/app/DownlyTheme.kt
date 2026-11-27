@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalView
@@ -281,13 +282,14 @@ fun DownlyBackground(content: @Composable BoxScope.() -> Unit) {
 /** Soft glass surface. strong = the more opaque sheet / dialog fill. */
 internal fun Modifier.glass(
     shape: Shape = RoundedCornerShape(16.dp),
-    strong: Boolean = false
+    strong: Boolean = false,
+    flat: Boolean = false
 ): Modifier = composed {
     val c = Downly.colors
     val fill = if (strong) c.sheetFill else c.glassFill
     this
         .then(
-            if (c.isDark) Modifier else Modifier.shadow(
+            if (c.isDark || flat) Modifier else Modifier.shadow(
                 elevation = 4.dp,
                 shape = shape,
                 clip = false,
@@ -377,7 +379,7 @@ internal fun GlassIconButton(
         contentAlignment = Alignment.Center
     ) {
         Box(Modifier.size(size).whiteButton(CircleShape), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = description, tint = Color.Black, modifier = Modifier.size(18.dp))
+            Icon(icon, contentDescription = description, tint = Color.Black, modifier = Modifier.size(if (size >= 42.dp) 22.dp else 18.dp))
         }
     }
 }
@@ -580,13 +582,19 @@ internal fun GlassBottomSheet(
         SideEffect {
             (view.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
         }
-        val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
-        val scrim = remember { Animatable(0f) }
-        LaunchedEffect(Unit) { scrim.animateTo(1f, tween(220)) }
+        // One progress value drives both scrim and slide. It starts only AFTER the first frame has been
+        // composed and laid out, so the heavy first frame no longer eats the start of the animation
+        // (that was the "stuck, then jumps" feeling). It is read only in graphicsLayer / draw, so the
+        // sheet is not recomposed while it moves.
+        val progress = remember { Animatable(0f) }
+        LaunchedEffect(Unit) {
+            withFrameNanos { }
+            progress.animateTo(1f, tween(260, easing = FastOutSlowInEasing))
+        }
         Box(
             Modifier
                 .fillMaxSize()
-                .drawBehind { drawRect(c.scrim, alpha = scrim.value) }
+                .drawBehind { drawRect(c.scrim, alpha = progress.value) }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -594,28 +602,27 @@ internal fun GlassBottomSheet(
                 ),
             contentAlignment = Alignment.BottomCenter
         ) {
-            AnimatedVisibility(
-                visibleState = visibleState,
-                enter = slideInVertically(tween(240, easing = FastOutSlowInEasing)) { it }
+            Column(
+                Modifier
+                    .graphicsLayer {
+                        translationY = (1f - progress.value) * (size.height + 48.dp.toPx())
+                    }
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(8.dp)
+                    .widthIn(max = 480.dp)
+                    .fillMaxWidth()
+                    .glass(RoundedCornerShape(24.dp), strong = true, flat = true)
+                    // swallow taps so they do not reach the scrim
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    )
+                    .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.Start
             ) {
-                Column(
-                    Modifier
-                        .navigationBarsPadding()
-                        .imePadding()
-                        .padding(8.dp)
-                        .widthIn(max = 480.dp)
-                        .fillMaxWidth()
-                        .glass(RoundedCornerShape(24.dp), strong = true)
-                        // swallow taps so they do not reach the scrim
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {}
-                        )
-                        .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 16.dp)
-                        .verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.Start
-                ) {
                     Box(
                         Modifier
                             .align(Alignment.CenterHorizontally)
@@ -628,7 +635,6 @@ internal fun GlassBottomSheet(
                     Spacer(Modifier.height(12.dp))
                     content()
                 }
-            }
         }
     }
 }
