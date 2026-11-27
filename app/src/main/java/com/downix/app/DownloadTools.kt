@@ -1,8 +1,13 @@
 package com.downix.app
 
 import android.content.ClipData
+import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.ContextWrapper
+import android.app.Activity
+import android.provider.OpenableColumns
+import android.widget.Toast
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -455,30 +460,110 @@ internal fun copyLink(context: Context, url: String, onMessage: (String) -> Unit
     }
 }
 
+/** The Activity behind a Compose / wrapped context (needed to start other apps reliably). */
+internal tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+/**
+ * Starts another app. The Details sheet is a separate window that covers the in-app toast, so a failure is
+ * shown with a normal system Toast (visible above the sheet).
+ */
+internal fun launchExternal(context: Context, intent: Intent, failText: String, noAppText: String = failText): Boolean {
+    return try {
+        val activity = context.findActivity()
+        if (activity != null) {
+            activity.startActivity(intent)
+        } else {
+            context.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        true
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, noAppText, Toast.LENGTH_SHORT).show()
+        false
+    } catch (e: Exception) {
+        Toast.makeText(context, failText, Toast.LENGTH_SHORT).show()
+        false
+    }
+}
+
+/** The real file type of a saved file: from the system, else from the file name. */
+internal fun savedMime(context: Context, uri: Uri, fileName: String? = null): String {
+    val fromSystem = runCatching { context.contentResolver.getType(uri) }.getOrNull()
+    if (!fromSystem.isNullOrBlank() && fromSystem != "application/octet-stream") return fromSystem
+    val name = fileName?.takeIf { it.isNotBlank() } ?: runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+            if (it.moveToFirst()) it.getString(0) else null
+        }
+    }.getOrNull().orEmpty()
+    val fromName = mimeFromName(name)
+    return if (fromName != "*/*") fromName else fromSystem ?: "*/*"
+}
+
 /** Shares the finished file itself (not the link) with any app. */
 internal fun shareDownloaded(context: Context, item: DownloadItem, onMessage: (String) -> Unit = {}) {
     val saved = item.savedUri
     if (saved.isNullOrBlank()) return
-    try {
+    val uri = try {
         val parsed = Uri.parse(saved)
-        val uri = if (parsed.scheme == "content") {
+        if (parsed.scheme == "content") {
             parsed
         } else {
             // Android 9 and below: plain file, shared through our FileProvider.
             val path = parsed.path ?: return
             FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(path))
         }
-        val type = context.contentResolver.getType(uri) ?: mimeFromName(item.fileName)
-        val send = Intent(Intent.ACTION_SEND)
-            .setType(type)
-            .putExtra(Intent.EXTRA_STREAM, uri)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        send.clipData = ClipData.newRawUri(item.fileName, uri)
-        context.startActivity(Intent.createChooser(send, "Share file").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     } catch (e: Exception) {
-        onMessage("Can't share this file")
+        Toast.makeText(context, "Can't share this file", Toast.LENGTH_SHORT).show()
+        return
+    }
+    val type = savedMime(context, uri, item.fileName)
+    val send = Intent(Intent.ACTION_SEND)
+        .setType(type)
+        .putExtra(Intent.EXTRA_STREAM, uri)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    send.clipData = ClipData.newRawUri(item.fileName, uri)
+    val chooser = Intent.createChooser(send, "Share file")
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    chooser.clipData = send.clipData
+    launchExternal(context, chooser, "Can't share this file")
+}
+
+/** Opens the finished file in an app that can show it. */
+internal fun openSavedFile(context: Context, savedUri: String?, fileName: String? = null) {
+    if (savedUri.isNullOrBlank()) return
+    val uri = try { Uri.parse(savedUri) } catch (e: Exception) { return }
+    if (uri.scheme != "content") {
+        // Android 9 and below saves a plain file path: open the system Downloads list instead.
+        launchExternal(context, Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS), "Can't open this file")
+        return
+    }
+    val type = savedMime(context, uri, fileName)
+    val view = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(uri, type)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    view.clipData = ClipData.newRawUri("file", uri)
+    try {
+        val activity = context.findActivity()
+        if (activity != null) activity.startActivity(view) else context.startActivity(Intent(view).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (e: ActivityNotFoundException) {
+        // no app knows this exact type: let the user pick any app instead of failing
+        val any = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "*/*")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        any.clipData = view.clipData
+        launchExternal(
+            context,
+            Intent.createChooser(any, "Open with").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+            "Can't open this file",
+            "No app found to open this file"
+        )
+    } catch (e: Exception) {
+        Toast.makeText(context, "Can't open this file", Toast.LENGTH_SHORT).show()
     }
 }
 
-private fun mimeFromName(name: String): String =
+internal fun mimeFromName(name: String): String =
     MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: "*/*"

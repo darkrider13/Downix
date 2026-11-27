@@ -1050,27 +1050,20 @@ internal fun GlassBottomSheet(
         progress.animateTo(1f, tween(240, easing = FastOutSlowInEasing))
     }
 
+    // Every close is instant (no slide-down animation): tap outside, Back, swipe down, all dismiss at once.
     val closeAll: () -> Unit = {
         if (!closing) {
             closing = true
-            scope.launch {
-                if (instant) {
-                    currentOnDismiss()
-                    return@launch
-                }
-                val from = dragPx
-                val to = sheetH + with(density) { 48.dp.toPx() }
-                animate(from, to, animationSpec = tween(190, easing = FastOutLinearInEasing)) { v, _ -> dragPx = v }
-                currentOnDismiss()
-            }
+            currentOnDismiss()
         }
     }
+    // Finger released after a swipe down: far enough or fast enough = close at once, otherwise spring back.
     val settle: (Float) -> Unit = { velocity ->
         if (!closing) {
-            scope.launch {
-                if (dragPx > sheetH * 0.28f || velocity > 1300f) {
-                    closeAll()
-                } else {
+            if (dragPx > sheetH * 0.22f || velocity > 900f) {
+                closeAll()
+            } else {
+                scope.launch {
                     animate(dragPx, 0f, animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f)) { v, _ -> dragPx = v }
                 }
             }
@@ -1154,7 +1147,7 @@ internal fun GlassBottomSheet(
                     .nestedScroll(connection)
                     .padding(start = 16.dp, end = 16.dp, top = 0.dp)
                     .windowInsetsPadding(WindowInsets.navigationBars.exclude(WindowInsets.ime))
-                    .padding(bottom = 16.dp)
+                    .padding(bottom = 12.dp)
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.Start
             ) {

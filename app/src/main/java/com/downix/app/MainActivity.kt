@@ -643,7 +643,7 @@ private fun MainScreen(
             onClose = { detailsId = null },
             onCopyLink = { copyLink(context, detailsItem.url, showToast) },
             onShare = { shareDownloaded(context, detailsItem, showToast) },
-            onOpen = { openDownloaded(context, detailsItem.savedUri, showToast) },
+            onOpen = { openSavedFile(context, detailsItem.savedUri, detailsItem.fileName) },
             onDeleteFile = { confirmDeleteFile = detailsItem }
         )
     }
@@ -1918,20 +1918,5 @@ private fun Context.isGranted(permission: String): Boolean =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
 private fun openDownloaded(context: Context, savedUri: String?, onMessage: (String) -> Unit = {}) {
-    if (savedUri.isNullOrBlank()) return
-    try {
-        val uri = Uri.parse(savedUri)
-        val intent = if (uri.scheme == "content") {
-            val type = context.contentResolver.getType(uri) ?: "*/*"
-            Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, type)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } else {
-            // Android 9 and below saves a plain file path: open the system Downloads list instead.
-            Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)
-        }
-        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    } catch (e: Exception) {
-        onMessage("Can't open this file")
-    }
+    openSavedFile(context, savedUri)
 }
