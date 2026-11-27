@@ -721,7 +721,8 @@ internal fun PlainIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    onDisabledClick: (() -> Unit)? = null
+    onDisabledClick: (() -> Unit)? = null,
+    iconSize: androidx.compose.ui.unit.Dp = 18.dp
 ) {
     Box(
         modifier
@@ -733,7 +734,7 @@ internal fun PlainIconButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(18.dp))
+        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(iconSize))
     }
 }
 
@@ -1217,6 +1218,8 @@ internal object DownixIcons {
     val Telegram by lazy { icon("Telegram", "M22 2L11 13", "M22 2l-7 20-4-9-9-4 20-7z") }
     val Play by lazy { icon("Play", "M8 5l11 7-11 7z") }
     val Close by lazy { icon("Close", "M6 6l12 12M18 6L6 18") }
+    /** Thick cross (same stroke weight as the pause bars) for the "cancel / remove" button on download cards. */
+    val CloseBold by lazy { iconW("CloseBold", 2.8f, "M6 6l12 12M18 6L6 18") }
     val OpenFile by lazy { icon("OpenFile", "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6") }
     val Trash by lazy { icon("Trash", "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13") }
     val Plus by lazy { icon("Plus", "M12 5v14M5 12h14") }

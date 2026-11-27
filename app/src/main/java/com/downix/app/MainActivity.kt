@@ -211,8 +211,8 @@ class MainActivity : ComponentActivity() {
             }
 
             DownixTheme {
-                // The whole screen (down to the navigation bar) blurs while any popup is open.
-                Box(Modifier.fillMaxSize().blurWhen(PopupLayers.count > 0)) {
+                // The blur itself lives in MainScreen (it follows the popup state in the same frame).
+                Box(Modifier.fillMaxSize()) {
                     MainScreen(
                         sharedLink = pendingLink,
                         onSharedLinkConsumed = { pendingLink = null }
@@ -454,6 +454,12 @@ private fun MainScreen(
         if (needed.isNotEmpty()) permissionLauncher.launch(needed.toTypedArray())
     }
 
+    // The blur is switched on from the very same state that opens a popup, in the same frame (no waiting for the
+    // popup window to register itself). It goes away in the same frame the popup closes.
+    val popupOpen = showAdd || showUpdate || detailsItem != null || confirmDeleteFile != null ||
+        confirmRemove != null || (confirmBulk && downloads.any { it.id in selected }) ||
+        confirmClear || confirmCancel != null
+    Box(Modifier.fillMaxSize().blurWhen(popupOpen || PopupLayers.count > 0)) {
     DownixBackground {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Header(
@@ -607,6 +613,7 @@ private fun MainScreen(
         if (!listLoaded) {
             Box(Modifier.fillMaxSize().background(Downix.colors.background))
         }
+    }
     }
 
     if (showAdd) {
@@ -1114,8 +1121,11 @@ private fun DownloadCard(
                     )
                 }
             }
-            // Red dustbin on every card (active, paused, failed, completed). No swipe-to-delete any more.
-            PlainIconButton(DownixIcons.Trash, "Delete", c.red, { onRemove(item) }, enabled = !selectionMode)
+            // Thick red cross on every card (active, paused, failed, completed), same weight and size as pause / resume.
+            PlainIconButton(
+                DownixIcons.CloseBold, "Remove", c.red, { onRemove(item) },
+                enabled = !selectionMode, iconSize = 22.dp
+            )
         }
 
     }
