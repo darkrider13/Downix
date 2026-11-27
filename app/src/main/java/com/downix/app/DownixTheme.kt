@@ -783,13 +783,17 @@ internal fun PlainIconButton(
     tint: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    onDisabledClick: (() -> Unit)? = null
 ) {
     Box(
         modifier
             .size(40.dp)
             .alpha(if (enabled) 1f else 0.35f)
-            .pressable(enabled = enabled, onClick = onClick),
+            .pressable(
+                enabled = enabled || onDisabledClick != null,
+                onClick = if (enabled) onClick else (onDisabledClick ?: {})
+            ),
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(18.dp))

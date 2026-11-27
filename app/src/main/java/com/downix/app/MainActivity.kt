@@ -473,6 +473,7 @@ private fun MainScreen(
                 },
                 onPauseAll = vm::pauseAll,
                 onClearFinished = vm::clearFinished,
+                onNothingToClear = { showToast("No finished downloads to clear") },
                 onSettings = { showSettings = true },
                 updatePending = updateState is UpdateState.Available ||
                     updateState is UpdateState.Downloading ||
@@ -721,6 +722,7 @@ private fun Header(
     onPauseAll: () -> Unit,
     onClearFinished: () -> Unit,
     onSettings: () -> Unit,
+    onNothingToClear: () -> Unit = {},
     updatePending: Boolean = false,
     loaded: Boolean = true,
     selectedCount: Int = 0,
@@ -742,7 +744,7 @@ private fun Header(
                 onDelete = onDeleteSelected
             )
         } else {
-            NormalHeader(downloads, searchOpen, onSearch, onPauseAll, onClearFinished, onSettings, updatePending, loaded)
+            NormalHeader(downloads, searchOpen, onSearch, onPauseAll, onClearFinished, onSettings, updatePending, loaded, onNothingToClear)
         }
     }
 }
@@ -790,7 +792,8 @@ private fun NormalHeader(
     onClearFinished: () -> Unit,
     onSettings: () -> Unit,
     updatePending: Boolean = false,
-    loaded: Boolean = true
+    loaded: Boolean = true,
+    onNothingToClear: () -> Unit = {}
 ) {
     val c = Downix.colors
     val active = downloads.count { it.isActive }
@@ -832,7 +835,8 @@ private fun NormalHeader(
             description = "Clear finished downloads",
             tint = c.red,
             onClick = onClearFinished,
-            enabled = finished > 0
+            enabled = finished > 0,
+            onDisabledClick = onNothingToClear
         )
         Box {
             PlainIconButton(
