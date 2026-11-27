@@ -19,6 +19,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -1136,13 +1138,13 @@ internal fun GlassBottomSheet(
                     .graphicsLayer {
                         translationY = (1f - progress.value) * (size.height + 48.dp.toPx()) + dragPx
                     }
-                    .navigationBarsPadding()
+                    // Sits flat on the bottom edge of the screen (no gap above the navigation bar); only the
+                    // top corners are round. The navigation bar area is padded inside the sheet below.
                     .imePadding()
-                    .padding(8.dp)
                     .widthIn(max = 480.dp)
                     .fillMaxWidth()
                     .onSizeChanged { sheetH = it.height.toFloat() }
-                    .glass(RoundedCornerShape(24.dp), strong = true, flat = true)
+                    .glass(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), strong = true, flat = true)
                     // swallow taps so they do not reach the scrim
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -1150,7 +1152,9 @@ internal fun GlassBottomSheet(
                         onClick = {}
                     )
                     .nestedScroll(connection)
-                    .padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 16.dp)
+                    .padding(start = 16.dp, end = 16.dp, top = 0.dp)
+                    .windowInsetsPadding(WindowInsets.navigationBars.exclude(WindowInsets.ime))
+                    .padding(bottom = 16.dp)
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.Start
             ) {
