@@ -5,5 +5,7 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowBackground">#FFE8EEF5</item>
         <item name="android:windowLightStatusBar">true</item>
+        <!-- popups (dialog windows) open with no system pop / fade animation -->
+        <item name="android:windowAnimationStyle">@null</item>
     </style>
 </resources>
