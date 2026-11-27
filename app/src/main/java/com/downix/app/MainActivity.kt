@@ -1686,7 +1686,9 @@ internal fun SettingDivider() {
 @Composable
 private fun Stepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
     val c = Downix.colors
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    // The 36 dp tap boxes leave empty space around the icons: shift the row so the "+" ends at the
+    // same right edge as the buttons and switches in the other rows.
+    Row(Modifier.offset(x = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         StepButton(DownixIcons.Minus, "Fewer downloads", enabled = value > min) { onChange(value - 1) }
         AnimatedContent(
             targetState = value,
@@ -1761,6 +1763,7 @@ internal fun GlassSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val track = RoundedCornerShape(11.dp)
     Box(
         Modifier
+            .offset(x = 1.dp) // 40 dp tap box, 38 dp switch: its right edge lines up with the other rows
             .heightIn(min = 40.dp)
             .widthIn(min = 40.dp)
             .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),

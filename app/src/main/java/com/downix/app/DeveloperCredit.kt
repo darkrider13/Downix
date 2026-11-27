@@ -29,9 +29,9 @@ import androidx.compose.ui.unit.sp
  */
 internal object DeveloperInfo {
     const val NAME = "MD.INSANUL ISLAM ABIR"
-    const val WHATSAPP = ""   // e.g. "https://wa.me/8801XXXXXXXXX"
-    const val INSTAGRAM = ""  // e.g. "https://instagram.com/yourname"
-    const val TELEGRAM = ""   // e.g. "https://t.me/yourname"
+    const val WHATSAPP = "https://wa.me/insanul.islam.abir"
+    const val INSTAGRAM = "https://www.instagram.com/md.insanulislam"
+    const val TELEGRAM = "https://t.me/insanul13"
 }
 
 @Composable
