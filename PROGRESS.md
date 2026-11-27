@@ -205,6 +205,14 @@ Not compiled here (no SDK). If `AnimatedContent` / `togetherWith` fail to compil
 | R12 | New file DeveloperCredit.kt: "Developed by NAME", WhatsApp / Instagram / Telegram icons, copyright line, at the bottom of Settings. Links are empty strings in `DeveloperInfo` (user adds them later; empty = tap does nothing) | DONE |
 Not compiled here (no SDK).
 
+## Round 5 (Add link button, solid cards, faster popups) - ALL DONE
+| # | Step | Status |
+|---|------|--------|
+| R13 | Add link popup: separate Connect button removed. `MorphActionButton` (MainActivity.kt) = white "Connect" -> spinner "Connecting" -> green "Download" (colour fade + label slide, no overlap); "Download again" for duplicates; status line above it fades between hint / checking / result (Crossfade) | DONE |
+| R14 | Popup / toast / menu-chip cards are fully solid: `sheetFill` in DownlyTheme.kt now has alpha 1 (dark 0xFF1A1A1F, day 0xFFF8F9FD), so list text never shows through | DONE |
+| R15 | Faster popups: GlassCenterDialog and GlassBottomSheet start animating in the first frame (MutableTransitionState), scrim is drawn in the draw phase (Animatable + drawBehind, no recomposition per frame), shorter animations; + menu closes in 80 ms; keyboard focus after 200 ms | DONE |
+Not compiled here (no SDK).
+
 ## Things to remember
 - Code has not been compiled yet (no network / Android SDK in the build sandbox); first real build happens when the user pushes to GitHub (Step 8 workflow)
 - Never regenerate or replace the signing key after users installed a build: every build must use the same key
