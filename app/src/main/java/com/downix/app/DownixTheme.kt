@@ -612,8 +612,9 @@ internal fun GlassIconButton(
 
 /**
  * Icon-only action button for the home screen (pause all, pause, resume, retry, open): no background circle.
- * 40 dp tap area, 22 dp icon. Pressing squeezes it; when [icon] changes (pause <-> play) the old icon shrinks
- * away and the new one grows in with a small bounce.
+ * 40 dp tap area, 22 dp icon. Pressing squeezes it a little. When [icon] changes (pause <-> play) the old
+ * icon fades out and the new one fades in slowly and smoothly (soft crossfade, small scale, no bounce / spin),
+ * so the change is gentle and does not flash.
  */
 @Composable
 internal fun AnimatedIconButton(
@@ -626,13 +627,9 @@ internal fun AnimatedIconButton(
     optimisticIcon: ImageVector? = null
 ) {
     val alpha by animateFloatAsState(if (enabled) 1f else 0.35f, tween(200), label = "iconButtonAlpha")
-    val scope = rememberCoroutineScope()
-    // Tap animation: the icon shrinks, springs back and turns a little, and the play / pause icon
-    // swaps at once (does not wait for the engine). It goes back to the real icon when the state changes.
+    // The play / pause icon swaps at once on tap (does not wait for the engine) and goes back to the
+    // real icon when the state changes.
     var tapped by remember(icon) { mutableStateOf(false) }
-    val pulse = remember { Animatable(1f) }
-    val spin = remember { Animatable(0f) }
-    val ring = remember { Animatable(0f) }
     LaunchedEffect(tapped) {
         if (tapped) {
             delay(1500)
@@ -640,49 +637,28 @@ internal fun AnimatedIconButton(
         }
     }
     val shown = if (tapped && optimisticIcon != null) optimisticIcon else icon
-    val ringColor = tint
     Box(
         modifier
             .size(40.dp)
             .alpha(alpha)
             .pressable(
                 enabled = enabled,
-                pressedScale = 0.82f,
+                pressedScale = 0.92f,
                 onClick = {
                     if (optimisticIcon != null) tapped = true
-                    scope.launch {
-                        pulse.snapTo(0.6f)
-                        pulse.animateTo(1f, spring(dampingRatio = 0.35f, stiffness = Spring.StiffnessMedium))
-                    }
-                    scope.launch {
-                        spin.snapTo(-90f)
-                        spin.animateTo(0f, tween(320, easing = FastOutSlowInEasing))
-                    }
-                    scope.launch {
-                        ring.snapTo(0f)
-                        ring.animateTo(1f, tween(380, easing = FastOutSlowInEasing))
-                    }
                     onClick()
                 }
-            )
-            .drawBehind {
-                val r = ring.value
-                if (r > 0f && r < 1f) {
-                    drawCircle(
-                        color = ringColor.copy(alpha = 0.28f * (1f - r)),
-                        radius = size.minDimension / 2f * (0.5f + 0.5f * r)
-                    )
-                }
-            },
+            ),
         contentAlignment = Alignment.Center
     ) {
         AnimatedContent(
             targetState = shown,
             transitionSpec = {
-                (fadeIn(tween(160, delayMillis = 70)) + scaleIn(
-                    initialScale = 0.4f,
-                    animationSpec = spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium)
-                )) togetherWith (fadeOut(tween(110)) + scaleOut(targetScale = 0.4f, animationSpec = tween(110)))
+                (fadeIn(tween(320, delayMillis = 120, easing = FastOutSlowInEasing)) +
+                    scaleIn(initialScale = 0.88f, animationSpec = tween(320, delayMillis = 120, easing = FastOutSlowInEasing))
+                    ) togetherWith
+                    (fadeOut(tween(240, easing = FastOutSlowInEasing)) +
+                        scaleOut(targetScale = 0.88f, animationSpec = tween(240, easing = FastOutSlowInEasing)))
             },
             label = "iconSwap"
         ) { icn ->
@@ -690,13 +666,7 @@ internal fun AnimatedIconButton(
                 icn,
                 contentDescription = description,
                 tint = tint,
-                modifier = Modifier
-                    .size(22.dp)
-                    .graphicsLayer {
-                        scaleX = pulse.value
-                        scaleY = pulse.value
-                        rotationZ = spin.value
-                    }
+                modifier = Modifier.size(22.dp)
             )
         }
     }
