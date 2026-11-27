@@ -168,9 +168,10 @@ internal fun UpdateDialog(
 @Composable
 internal fun UpdateDot(modifier: Modifier = Modifier) {
     val c = Downix.colors
-    Canvas(modifier.size(14.dp)) {
-        drawCircle(c.green.copy(alpha = 0.85f), radius = 3.dp.toPx())
-        drawCircle(c.green.copy(alpha = 0.35f), radius = 6.dp.toPx(), style = Stroke(width = 1.dp.toPx()))
+    // small dot, thin ring right around it (tiny gap)
+    Canvas(modifier.size(9.dp)) {
+        drawCircle(c.green.copy(alpha = 0.9f), radius = 2.dp.toPx())
+        drawCircle(c.green.copy(alpha = 0.4f), radius = 3.7.dp.toPx(), style = Stroke(width = 0.8.dp.toPx()))
     }
 }
 

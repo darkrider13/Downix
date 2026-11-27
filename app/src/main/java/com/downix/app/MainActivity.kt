@@ -791,8 +791,8 @@ private fun NormalHeader(
                 onClick = onSettings
             )
             if (updatePending) {
-                // soft green dot with a faint ring and a clear gap between them
-                UpdateDot(Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 4.dp))
+                // small green dot sitting right on the gear's top-right corner
+                UpdateDot(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp))
             }
         }
     }
