@@ -48,19 +48,19 @@ internal fun UpdateBanner(state: UpdateState, onClick: () -> Unit) {
     }
     Row(
         Modifier
-            .padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+            .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
             .fillMaxWidth()
             .glass(RoundedCornerShape(16.dp))
             .pressable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Rounded.SystemUpdate, null, tint = Palette.Mint, modifier = Modifier.size(22.dp))
+        Icon(Icons.Rounded.SystemUpdate, null, tint = Downly.colors.green, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = Palette.Ice, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, color = Downly.colors.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             if (subtitle.isNotEmpty()) {
-                Text(subtitle, color = Palette.Mist, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, color = Downly.colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -77,9 +77,9 @@ internal fun UpdateDialog(
     val info = state.info()
     GlassDialog(onClose) {
         if (info == null) {
-            Text("Downly is up to date", color = Palette.Ice, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Downly is up to date", color = Downly.colors.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
-            Text("You have version ${BuildConfig.VERSION_NAME}.", color = Palette.Mist, fontSize = 14.sp)
+            Text("You have version ${BuildConfig.VERSION_NAME}.", color = Downly.colors.textSecondary, fontSize = 14.sp)
             Spacer(Modifier.height(18.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 PillButton("Done", onClick = onClose)
@@ -93,22 +93,22 @@ internal fun UpdateDialog(
             is UpdateState.Error -> "Update problem"
             else -> "Update available"
         }
-        Text(title, color = Palette.Ice, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(title, color = Downly.colors.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
         val size = if (info.apkSize > 0) "  |  ${formatBytes(info.apkSize)}" else ""
         Text(
             "Downly ${info.versionName}$size",
-            color = Palette.Sky,
+            color = Downly.colors.text,
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold
         )
-        Text("You have ${BuildConfig.VERSION_NAME}", color = Palette.Mist, fontSize = 13.sp)
+        Text("You have ${BuildConfig.VERSION_NAME}", color = Downly.colors.textSecondary, fontSize = 13.sp)
 
         if (info.notes.isNotBlank()) {
             Spacer(Modifier.height(12.dp))
             Text(
                 info.notes,
-                color = Palette.Ice,
+                color = Downly.colors.text,
                 fontSize = 13.sp,
                 lineHeight = 19.sp,
                 maxLines = 8,
@@ -122,12 +122,12 @@ internal fun UpdateDialog(
                 GlassProgress(
                     progress = state.progress,
                     indeterminate = !state.hasKnownSize,
-                    colors = listOf(Palette.Azure, Palette.Sky)
+                    color = Downly.colors.greenBar
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Downloading ${percentText(state)}. You can close this, it continues in the background.",
-                    color = Palette.Mist,
+                    color = Downly.colors.textSecondary,
                     fontSize = 13.sp
                 )
                 Spacer(Modifier.height(14.dp))
@@ -139,7 +139,7 @@ internal fun UpdateDialog(
             is UpdateState.ReadyToInstall -> {
                 Text(
                     "Android will ask you to confirm. Your downloads and settings stay as they are.",
-                    color = Palette.Mist,
+                    color = Downly.colors.textSecondary,
                     fontSize = 13.sp,
                     lineHeight = 18.sp
                 )
@@ -152,7 +152,7 @@ internal fun UpdateDialog(
             }
 
             is UpdateState.Error -> {
-                Text(state.message, color = Palette.Coral, fontSize = 14.sp, lineHeight = 19.sp)
+                Text(state.message, color = Downly.colors.red, fontSize = 14.sp, lineHeight = 19.sp)
                 Spacer(Modifier.height(14.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     PillButton("Close", onClick = onClose, primary = false)

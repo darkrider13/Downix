@@ -12,7 +12,8 @@ data class AppSettings(
     val wifiOnly: Boolean = false,
     val notifications: Boolean = true,
     val autoUpdateCheck: Boolean = true,
-    val downloadFolder: String = "" // picked folder (tree URI), blank = Downloads
+    val downloadFolder: String = "", // picked folder (tree URI), blank = Downloads
+    val themeMode: ThemeMode = ThemeMode.AUTO // Auto / Day / Dark
 ) {
     companion object {
         const val MIN_PARALLEL = 1
@@ -31,6 +32,7 @@ object SettingNames {
     const val NOTIFICATIONS = "Notifications"
     const val AUTO_UPDATE_CHECK = "Check for updates automatically"
     const val DOWNLOAD_FOLDER = "Download folder"
+    const val THEME = "Theme"
 }
 
 /**
@@ -70,6 +72,11 @@ class SettingsRepository private constructor(context: Context) {
         _settings.update { it.copy(autoUpdateCheck = enabled) }
     }
 
+    fun setThemeMode(mode: ThemeMode) {
+        prefs.edit().putString(KEY_THEME, mode.key).apply()
+        _settings.update { it.copy(themeMode = mode) }
+    }
+
     /** [folderUri] blank = back to the Downloads folder. */
     fun setDownloadFolder(folderUri: String) {
         prefs.edit().putString(KEY_FOLDER, folderUri).apply()
@@ -88,6 +95,7 @@ class SettingsRepository private constructor(context: Context) {
             .putBoolean(KEY_WIFI_ONLY, safe.wifiOnly)
             .putBoolean(KEY_NOTIFICATIONS, safe.notifications)
             .putBoolean(KEY_AUTO_UPDATE, safe.autoUpdateCheck)
+            .putString(KEY_THEME, safe.themeMode.key)
             .apply()
         _settings.value = safe
     }
@@ -98,7 +106,8 @@ class SettingsRepository private constructor(context: Context) {
         wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false),
         notifications = prefs.getBoolean(KEY_NOTIFICATIONS, true),
         autoUpdateCheck = prefs.getBoolean(KEY_AUTO_UPDATE, true),
-        downloadFolder = prefs.getString(KEY_FOLDER, "").orEmpty()
+        downloadFolder = prefs.getString(KEY_FOLDER, "").orEmpty(),
+        themeMode = ThemeMode.fromKey(prefs.getString(KEY_THEME, null))
     )
 
     companion object {
@@ -108,6 +117,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_NOTIFICATIONS = "notifications"
         private const val KEY_AUTO_UPDATE = "auto_update_check"
         private const val KEY_FOLDER = "download_folder"
+        private const val KEY_THEME = "theme_mode"
 
         @Volatile private var instance: SettingsRepository? = null
 

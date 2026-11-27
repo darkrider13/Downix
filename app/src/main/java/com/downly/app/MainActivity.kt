@@ -10,6 +10,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.DisposableEffect
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -162,14 +165,27 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
-        )
         if (savedInstanceState == null) pendingLink = linkFromIntent(intent)
+        val settingsRepo = SettingsRepository.get(this)
 
         setContent {
-            GlassTheme {
+            val settings by settingsRepo.settings.collectAsStateWithLifecycle()
+            val dark = settings.themeMode.isDark(isSystemInDarkTheme())
+
+            // Status / navigation bar icons follow Day or Dark.
+            DisposableEffect(dark) {
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(
+                        android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT
+                    ) { dark },
+                    navigationBarStyle = SystemBarStyle.auto(
+                        android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT
+                    ) { dark }
+                )
+                onDispose { }
+            }
+
+            DownlyTheme(settings.themeMode) {
                 MainScreen(
                     sharedLink = pendingLink,
                     onSharedLinkConsumed = { pendingLink = null }
@@ -254,6 +270,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     fun setNotifications(enabled: Boolean) = settingsRepo.setNotifications(enabled)
     fun setAutoUpdateCheck(enabled: Boolean) = settingsRepo.setAutoUpdateCheck(enabled)
     fun setDownloadFolder(folderUri: String) = settingsRepo.setDownloadFolder(folderUri)
+    fun setThemeMode(mode: ThemeMode) = settingsRepo.setThemeMode(mode)
 
     /* ---------------------------- updates ---------------------------- */
 
@@ -327,224 +344,6 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Theme and glass building blocks                                    */
-/* ------------------------------------------------------------------ */
-
-internal object Palette {
-    val NavyDeep = Color(0xFF040A1E)
-    val Navy = Color(0xFF0A1B4D)
-    val Royal = Color(0xFF1746C9)
-    val Azure = Color(0xFF2F8BFF)
-    val Sky = Color(0xFF63C7FF)
-    val Ice = Color(0xFFEAF3FF)
-    val Mist = Color(0xFFA7BCE6)
-    val Mint = Color(0xFF5CE1B5)
-    val Amber = Color(0xFFFFC46B)
-    val Coral = Color(0xFFFF7D8A)
-    val CoralDeep = Color(0xFFE5546A)
-    val Violet = Color(0xFFB69CFF)
-    val Lime = Color(0xFF9BE564)
-}
-
-@Composable
-private fun GlassTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = Palette.Azure,
-            onPrimary = Color.White,
-            background = Palette.NavyDeep,
-            surface = Palette.Navy,
-            onSurface = Palette.Ice
-        ),
-        content = content
-    )
-}
-
-/** Frosted glass surface: translucent white gradient fill + light-catching border. */
-internal fun Modifier.glass(
-    shape: Shape = RoundedCornerShape(24.dp),
-    strong: Boolean = false
-): Modifier = this
-    .clip(shape)
-    .background(
-        Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = if (strong) 0.20f else 0.13f),
-                Color.White.copy(alpha = if (strong) 0.08f else 0.04f)
-            )
-        ),
-        shape
-    )
-    .border(
-        1.dp,
-        Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = 0.45f),
-                Color.White.copy(alpha = 0.06f),
-                Color.White.copy(alpha = 0.18f)
-            )
-        ),
-        shape
-    )
-
-/** Soft press feedback (spring scale) for every tappable element. */
-internal fun Modifier.pressable(enabled: Boolean = true, onClick: () -> Unit): Modifier = composed {
-    val source = remember { MutableInteractionSource() }
-    val pressed by source.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.92f else 1f,
-        animationSpec = spring(dampingRatio = 0.55f, stiffness = 600f),
-        label = "press"
-    )
-    this
-        .graphicsLayer { scaleX = scale; scaleY = scale }
-        .clickable(
-            interactionSource = source,
-            indication = null,
-            enabled = enabled,
-            role = Role.Button,
-            onClick = onClick
-        )
-}
-
-private fun DrawScope.orb(color: Color, center: Offset, radius: Float) {
-    drawCircle(
-        brush = Brush.radialGradient(listOf(color, Color.Transparent), center = center, radius = radius),
-        radius = radius,
-        center = center
-    )
-}
-
-/** Deep-blue gradient with a few slowly drifting light orbs behind the glass. */
-@Composable
-private fun GlassBackground(content: @Composable BoxScope.() -> Unit) {
-    val transition = rememberInfiniteTransition(label = "orbs")
-    val drift by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(16_000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "drift"
-    )
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    0f to Palette.NavyDeep,
-                    0.55f to Palette.Navy,
-                    1f to Palette.Royal
-                )
-            )
-            .drawBehind {
-                val w = size.width
-                val h = size.height
-                orb(
-                    Palette.Azure.copy(alpha = 0.55f),
-                    Offset(w * (0.10f + 0.30f * drift), h * (0.10f + 0.06f * drift)),
-                    w * 0.95f
-                )
-                orb(
-                    Palette.Sky.copy(alpha = 0.30f),
-                    Offset(w * (0.95f - 0.35f * drift), h * (0.55f + 0.08f * drift)),
-                    w * 0.80f
-                )
-                orb(
-                    Palette.Royal.copy(alpha = 0.60f),
-                    Offset(w * (0.30f + 0.25f * drift), h * 0.95f),
-                    w * 1.00f
-                )
-            },
-        content = content
-    )
-}
-
-@Composable
-internal fun GlassIconButton(
-    icon: ImageVector,
-    description: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    tint: Color = Palette.Ice,
-    size: Dp = 40.dp,
-    enabled: Boolean = true
-) {
-    Box(
-        modifier
-            .size(size)
-            .alpha(if (enabled) 1f else 0.35f)
-            .glass(CircleShape)
-            .pressable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(size * 0.5f))
-    }
-}
-
-@Composable
-internal fun PillButton(
-    text: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    primary: Boolean = true,
-    danger: Boolean = false,
-    icon: ImageVector? = null,
-    enabled: Boolean = true
-) {
-    val shape = CircleShape
-    val base = if (primary) {
-        val colors = if (danger) listOf(Palette.Coral, Palette.CoralDeep) else listOf(Palette.Azure, Palette.Royal)
-        modifier.clip(shape).background(Brush.horizontalGradient(colors), shape)
-    } else {
-        modifier.glass(shape)
-    }
-    Row(
-        base
-            .alpha(if (enabled) 1f else 0.4f)
-            .border(1.dp, Color.White.copy(alpha = if (primary) 0.35f else 0f), shape)
-            .pressable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 22.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
-    ) {
-        if (icon != null) {
-            Icon(icon, null, tint = Color.White, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-        }
-        Text(text, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-/** Pop-up container: glass panel that fades and springs in. */
-@Composable
-internal fun GlassDialog(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        var shown by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { shown = true }
-        AnimatedVisibility(
-            visible = shown,
-            enter = fadeIn(tween(160)) + scaleIn(
-                initialScale = 0.92f,
-                animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium)
-            )
-        ) {
-            val shape = RoundedCornerShape(28.dp)
-            Column(
-                Modifier
-                    .padding(horizontal = 24.dp)
-                    .widthIn(max = 420.dp)
-                    .fillMaxWidth()
-                    .clip(shape)
-                    .background(Palette.Navy.copy(alpha = 0.92f))
-                    .glass(shape, strong = true)
-                    .padding(22.dp)
-                    .verticalScroll(rememberScrollState()),
-                content = content
-            )
-        }
-    }
-}
-
-/* ------------------------------------------------------------------ */
 /*  Main screen                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -611,10 +410,15 @@ private fun MainScreen(
         if (needed.isNotEmpty()) permissionLauncher.launch(needed.toTypedArray())
     }
 
-    GlassBackground {
+    DownlyBackground {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Header(
                 downloads = downloads,
+                searchOpen = searchOpen,
+                onSearch = {
+                    if (searchOpen) query = ""
+                    searchOpen = !searchOpen
+                },
                 onPauseAll = vm::pauseAll,
                 onClearFinished = vm::clearFinished,
                 onSettings = { showSettings = true }
@@ -639,12 +443,7 @@ private fun MainScreen(
                 FilterBar(
                     items = downloads,
                     filter = filter,
-                    onFilter = { filter = it },
-                    searchOpen = searchOpen,
-                    onToggleSearch = {
-                        if (searchOpen) query = ""
-                        searchOpen = !searchOpen
-                    }
+                    onFilter = { filter = it }
                 )
             }
             AnimatedVisibility(
@@ -655,7 +454,7 @@ private fun MainScreen(
                 SearchField(
                     query = query,
                     onQueryChange = { query = it },
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
                 )
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -665,8 +464,8 @@ private fun MainScreen(
                     EmptyListMessage(filter, query, Modifier.align(Alignment.Center))
                 } else {
                     LazyColumn(
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 130.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 100.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(visible, key = { it.id }) { item ->
                             DownloadCard(
@@ -694,9 +493,9 @@ private fun MainScreen(
 
         AddButton(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
+                .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
-                .padding(bottom = 22.dp),
+                .padding(end = 16.dp, bottom = 18.dp),
             onClick = {
                 addInitial = ""
                 showAdd = true
@@ -735,6 +534,7 @@ private fun MainScreen(
             onInstallUpdate = { installUpdate(context, vm) },
             onExport = vm::exportSettings,
             onImport = vm::importSettings,
+            onThemeMode = vm::setThemeMode,
             onClose = { showSettings = false }
         )
     }
@@ -801,49 +601,58 @@ private fun MainScreen(
 @Composable
 private fun Header(
     downloads: List<DownloadItem>,
+    searchOpen: Boolean,
+    onSearch: () -> Unit,
     onPauseAll: () -> Unit,
     onClearFinished: () -> Unit,
     onSettings: () -> Unit
 ) {
+    val c = Downly.colors
     val active = downloads.count { it.isActive }
     val finished = downloads.count { !it.isActive && it.state != DownloadState.PAUSED }
     val speed = downloads.sumOf { it.speedBytesPerSec }
     val subtitle = when {
-        active > 0 -> "$active active, ${formatSpeed(speed)}"
+        active > 0 -> "$active active · ${formatSpeed(speed)}"
         downloads.isEmpty() -> "No downloads yet"
         else -> "${downloads.size} in your list"
     }
     Row(
-        Modifier.fillMaxWidth().padding(start = 22.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 4.dp)
+            .glass(RoundedCornerShape(18.dp))
+            .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(
-                "Downloads",
-                color = Palette.Ice,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.8).sp
-            )
-            Text(subtitle, color = Palette.Mist, fontSize = 14.sp)
+            Text("Downloads", color = c.text, fontSize = 18.sp, lineHeight = 25.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = c.textSecondary, fontSize = 11.sp, lineHeight = 15.sp)
         }
+        PlainIconButton(
+            icon = if (searchOpen) DownlyIcons.Close else DownlyIcons.Search,
+            description = if (searchOpen) "Close search" else "Search downloads",
+            tint = c.text,
+            onClick = onSearch,
+            enabled = downloads.isNotEmpty()
+        )
         GlassIconButton(
-            icon = Icons.Rounded.Pause,
+            icon = DownlyIcons.Pause,
             description = "Pause all downloads",
             onClick = onPauseAll,
+            size = 32.dp,
             enabled = active > 0
         )
-        Spacer(Modifier.width(10.dp))
-        GlassIconButton(
-            icon = Icons.Rounded.ClearAll,
+        PlainIconButton(
+            icon = DownlyIcons.ClearAll,
             description = "Clear finished downloads",
+            tint = c.red,
             onClick = onClearFinished,
             enabled = finished > 0
         )
-        Spacer(Modifier.width(10.dp))
-        GlassIconButton(
-            icon = Icons.Rounded.Settings,
+        PlainIconButton(
+            icon = DownlyIcons.Settings,
             description = "Settings",
+            tint = c.text,
             onClick = onSettings
         )
     }
@@ -851,42 +660,35 @@ private fun Header(
 
 @Composable
 private fun EmptyState(modifier: Modifier = Modifier) {
+    val c = Downly.colors
     Column(modifier.padding(horizontal = 44.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(100.dp).glass(CircleShape, strong = true), contentAlignment = Alignment.Center) {
-            Icon(Icons.Rounded.CloudDownload, null, tint = Palette.Sky, modifier = Modifier.size(46.dp))
+        Box(Modifier.size(72.dp).glass(CircleShape), contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.CloudDownload, null, tint = c.text, modifier = Modifier.size(32.dp))
         }
-        Spacer(Modifier.height(22.dp))
-        Text("No downloads yet", color = Palette.Ice, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(16.dp))
+        Text("No downloads yet", color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
         Text(
-            "Tap Add link and paste a file link. Finished files are saved in your download folder.",
-            color = Palette.Mist,
-            fontSize = 14.sp,
-            lineHeight = 21.sp,
+            "Tap + and paste a file link. Finished files are saved in your download folder.",
+            color = c.textSecondary,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
             textAlign = TextAlign.Center
         )
     }
 }
 
+/** 56 dp white circle with a black "+" (no text). */
 @Composable
 private fun AddButton(modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val shape = CircleShape
-    Row(
+    Box(
         modifier
-            .clip(shape)
-            .background(Brush.horizontalGradient(listOf(Palette.Azure, Palette.Royal)), shape)
-            .border(
-                1.dp,
-                Brush.linearGradient(listOf(Color.White.copy(0.55f), Color.White.copy(0.10f))),
-                shape
-            )
+            .size(56.dp)
             .pressable(onClick = onClick)
-            .padding(horizontal = 28.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .whiteButton(CircleShape),
+        contentAlignment = Alignment.Center
     ) {
-        Icon(Icons.Rounded.Add, null, tint = Color.White, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(8.dp))
-        Text("Add link", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Icon(DownlyIcons.Plus, contentDescription = "Add download", tint = Color.Black, modifier = Modifier.size(26.dp))
     }
 }
 
@@ -904,142 +706,157 @@ private fun DownloadCard(
     onDetails: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier.fillMaxWidth().glass().pressable(onClick = onDetails).padding(16.dp)) {
+    val c = Downly.colors
+    Column(
+        modifier
+            .fillMaxWidth()
+            .pressable(pressedScale = 0.985f, onClick = onDetails)
+            .glass(RoundedCornerShape(16.dp))
+            .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Row 1: file tile, name, status
         Row(verticalAlignment = Alignment.CenterVertically) {
             FileTile(item.fileName)
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     item.fileName.ifBlank { "Getting file info" },
-                    color = Palette.Ice,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    lineHeight = 21.sp,
-                    maxLines = 2,
+                    color = c.text,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(4.dp))
                 StatusLine(item)
             }
         }
 
+        // Row 2: progress bar (green while running, gray when paused / waiting, hidden when done)
         if (!item.isCompleted) {
-            Spacer(Modifier.height(14.dp))
-            val fill = when (item.state) {
-                DownloadState.PAUSED, DownloadState.WAITING -> listOf(Palette.Amber.copy(alpha = 0.7f), Palette.Amber)
-                DownloadState.FAILED -> listOf(Palette.Coral.copy(alpha = 0.7f), Palette.Coral)
-                else -> listOf(Palette.Azure, Palette.Sky)
+            val barColor = when (item.state) {
+                DownloadState.DOWNLOADING, DownloadState.QUEUED -> c.greenBar
+                else -> c.paused
             }
-            GlassProgress(
-                progress = item.progress,
-                indeterminate = item.state == DownloadState.DOWNLOADING && !item.hasKnownSize,
-                colors = fill
-            )
+            Box(Modifier.padding(end = 4.dp)) {
+                GlassProgress(
+                    progress = item.progress,
+                    indeterminate = item.state == DownloadState.DOWNLOADING && !item.hasKnownSize,
+                    color = barColor
+                )
+            }
+        } else {
+            Spacer(Modifier.height(0.dp)) // keeps the same gap the design has on finished cards
         }
 
-        Spacer(Modifier.height(10.dp))
+        // Row 3: size info, white round button, plain red icon
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 sizeLabel(item),
-                color = Palette.Mist,
-                fontSize = 13.sp,
+                color = c.textSecondary,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
                 modifier = Modifier.weight(1f)
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                when {
-                    item.isCompleted -> {
-                        GlassIconButton(Icons.Rounded.OpenInNew, "Open file", onOpen, tint = Palette.Sky, size = 38.dp)
-                        GlassIconButton(Icons.Rounded.Delete, "Remove from list", onRemove, size = 38.dp)
-                    }
-                    item.canPause -> {
-                        GlassIconButton(Icons.Rounded.Pause, "Pause", onPause, size = 38.dp)
-                        GlassIconButton(Icons.Rounded.Close, "Cancel download", onRemove, size = 38.dp)
-                    }
-                    else -> {
-                        GlassIconButton(
-                            icon = if (item.state == DownloadState.FAILED) Icons.Rounded.Refresh else Icons.Rounded.PlayArrow,
-                            description = if (item.state == DownloadState.FAILED) "Retry" else "Resume",
-                            onClick = onResume,
-                            tint = Palette.Sky,
-                            size = 38.dp
-                        )
-                        GlassIconButton(Icons.Rounded.Close, "Cancel download", onRemove, size = 38.dp)
-                    }
+            when {
+                item.isCompleted -> {
+                    GlassIconButton(DownlyIcons.OpenFile, "Open file", onOpen, Modifier.offset(x = (-3).dp))
+                    PlainIconButton(DownlyIcons.Trash, "Remove from list", c.red, onRemove)
+                }
+                item.canPause -> {
+                    GlassIconButton(DownlyIcons.Pause, "Pause", onPause, Modifier.offset(x = (-3).dp))
+                    PlainIconButton(DownlyIcons.Close, "Cancel download", c.red, onRemove)
+                }
+                else -> {
+                    GlassIconButton(
+                        icon = if (item.state == DownloadState.FAILED) DownlyIcons.Retry else DownlyIcons.Play,
+                        description = if (item.state == DownloadState.FAILED) "Retry" else "Resume",
+                        onClick = onResume,
+                        modifier = Modifier.offset(x = (-3).dp)
+                    )
+                    PlainIconButton(DownlyIcons.Close, "Cancel download", c.red, onRemove)
                 }
             }
         }
 
         if (item.state == DownloadState.FAILED && !item.error.isNullOrBlank()) {
-            Spacer(Modifier.height(8.dp))
-            Text(item.error, color = Palette.Coral, fontSize = 13.sp, lineHeight = 18.sp)
+            Text(item.error, color = c.red, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(end = 4.dp))
         }
     }
 }
 
+/** "612.4 / 916.3 MB · 40s left" while running, "4.2 MB · Downloads" when finished. */
 internal fun sizeLabel(item: DownloadItem): String = when {
-    item.isCompleted -> "${formatBytes(maxOf(item.totalBytes, item.downloadedBytes))} saved to ${SaveLocation.savedFolderLabel(item.savedUri)}"
-    item.hasKnownSize -> "${formatBytes(item.downloadedBytes)} of ${formatBytes(item.totalBytes)}, ${item.percent}%"
+    item.isCompleted ->
+        "${formatBytes(maxOf(item.totalBytes, item.downloadedBytes))} · ${SaveLocation.savedFolderLabel(item.savedUri)}"
+    item.hasKnownSize -> {
+        val done = formatBytes(item.downloadedBytes)
+        val total = formatBytes(item.totalBytes)
+        val unit = total.substringAfter(' ', "")
+        val head = if (unit.isNotEmpty() && done.endsWith(" $unit")) done.removeSuffix(" $unit") else done
+        buildString {
+            append("$head / $total")
+            if (item.state == DownloadState.DOWNLOADING && item.etaSeconds >= 0) {
+                append(" · ${formatEta(item.etaSeconds)} left")
+            }
+        }
+    }
     else -> formatBytes(item.downloadedBytes)
 }
 
+/** 12 sp status text: green + bold while running / completed, gray when paused or waiting. */
 @Composable
 internal fun StatusLine(item: DownloadItem) {
-    val (label, color) = when (item.state) {
+    val c = Downly.colors
+    val (label, color, weight) = when (item.state) {
         DownloadState.DOWNLOADING -> {
-            val text = if (item.savingPercent >= 0) {
-                "Saving file, ${item.savingPercent}%"
-            } else if (item.speedBytesPerSec > 0) {
-                buildString {
-                    append(formatSpeed(item.speedBytesPerSec))
-                    if (item.etaSeconds >= 0) append(", ${formatEta(item.etaSeconds)} left")
-                }
-            } else "Connecting"
-            text to Palette.Sky
+            val text = when {
+                item.savingPercent >= 0 -> "Saving file · ${item.savingPercent}%"
+                item.speedBytesPerSec > 0 ->
+                    if (item.hasKnownSize) "${item.percent}% · ${formatSpeed(item.speedBytesPerSec)}"
+                    else formatSpeed(item.speedBytesPerSec)
+                else -> "Connecting"
+            }
+            Triple(text, c.green, FontWeight.Bold)
         }
-        DownloadState.QUEUED -> "Waiting in queue" to Palette.Mist
-        DownloadState.WAITING -> (item.error?.takeIf { it.isNotBlank() } ?: "Waiting for network") to Palette.Amber
-        DownloadState.PAUSED -> "Paused" to Palette.Amber
-        DownloadState.FAILED -> "Failed" to Palette.Coral
-        DownloadState.COMPLETED -> "Completed" to Palette.Mint
-        DownloadState.CANCELED -> "Canceled" to Palette.Mist
+        DownloadState.QUEUED -> Triple("Waiting in queue", c.textSecondary, FontWeight.Medium)
+        DownloadState.WAITING ->
+            Triple(item.error?.takeIf { it.isNotBlank() } ?: "Waiting for network", c.textSecondary, FontWeight.Medium)
+        DownloadState.PAUSED ->
+            Triple(if (item.hasKnownSize) "Paused · ${item.percent}%" else "Paused", c.textSecondary, FontWeight.Medium)
+        DownloadState.FAILED -> Triple("Failed", c.red, FontWeight.Bold)
+        DownloadState.COMPLETED -> Triple("Completed", c.green, FontWeight.Bold)
+        DownloadState.CANCELED -> Triple("Canceled", c.textSecondary, FontWeight.Medium)
     }
     val animated by animateColorAsState(color, tween(300), label = "status")
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(animated))
-        Spacer(Modifier.width(8.dp))
-        Text(label, color = animated, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-    }
+    Text(label, color = animated, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
+/** 34 dp glass tile with a thin file-type icon. */
 @Composable
 internal fun FileTile(fileName: String) {
-    val (icon, tint) = fileKind(fileName)
-    val shape = RoundedCornerShape(14.dp)
-    Box(
-        Modifier
-            .size(48.dp)
-            .clip(shape)
-            .background(tint.copy(alpha = 0.16f), shape)
-            .border(1.dp, tint.copy(alpha = 0.35f), shape),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
+    val c = Downly.colors
+    Box(Modifier.size(34.dp).glass(RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+        Icon(fileKind(fileName), null, tint = c.text, modifier = Modifier.size(17.dp))
     }
 }
 
-private fun fileKind(name: String): Pair<ImageVector, Color> =
+private fun fileKind(name: String): ImageVector =
     when (name.substringAfterLast('.', "").lowercase()) {
-        "mp4", "mkv", "avi", "mov", "webm", "3gp", "flv", "m4v" -> Icons.Rounded.Movie to Palette.Coral
-        "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "svg" -> Icons.Rounded.Image to Palette.Mint
-        "mp3", "wav", "flac", "aac", "m4a", "ogg", "opus" -> Icons.Rounded.MusicNote to Palette.Violet
-        "zip", "rar", "7z", "tar", "gz", "xz" -> Icons.Rounded.FolderZip to Palette.Amber
-        "apk", "aab", "xapk" -> Icons.Rounded.Android to Palette.Lime
-        "pdf", "doc", "docx", "txt", "xls", "xlsx", "ppt", "pptx", "epub" -> Icons.Rounded.Description to Palette.Sky
-        else -> Icons.Rounded.InsertDriveFile to Palette.Mist
+        "mp4", "mkv", "avi", "mov", "webm", "3gp", "flv", "m4v" -> DownlyIcons.FileVideo
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "svg" -> DownlyIcons.FileImage
+        "mp3", "wav", "flac", "aac", "m4a", "ogg", "opus" -> DownlyIcons.FileAudio
+        "zip", "rar", "7z", "tar", "gz", "xz" -> DownlyIcons.FileZip
+        "apk", "aab", "xapk" -> DownlyIcons.FileApp
+        "pdf", "doc", "docx", "txt", "xls", "xlsx", "ppt", "pptx", "epub" -> DownlyIcons.FileDoc
+        else -> DownlyIcons.FileOther
     }
 
+/** 6 dp progress bar, fully rounded, flat colour (no gradient). */
 @Composable
-internal fun GlassProgress(progress: Float, indeterminate: Boolean, colors: List<Color>) {
+internal fun GlassProgress(progress: Float, indeterminate: Boolean, color: Color, modifier: Modifier = Modifier) {
+    val c = Downly.colors
     val animated by animateFloatAsState(progress, tween(450, easing = LinearOutSlowInEasing), label = "progress")
     val sweep = rememberInfiniteTransition(label = "sweep")
     val x by sweep.animateFloat(
@@ -1049,11 +866,11 @@ internal fun GlassProgress(progress: Float, indeterminate: Boolean, colors: List
         label = "sweepX"
     )
     Box(
-        Modifier
+        modifier
             .fillMaxWidth()
-            .height(8.dp)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.12f))
+            .height(6.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(c.track)
     ) {
         if (indeterminate) {
             Box(
@@ -1062,7 +879,7 @@ internal fun GlassProgress(progress: Float, indeterminate: Boolean, colors: List
                     val start = (size.width + w) * x - w
                     drawRoundRect(
                         brush = Brush.horizontalGradient(
-                            listOf(Color.Transparent, Palette.Sky, Color.Transparent),
+                            listOf(color.copy(alpha = 0f), color, color.copy(alpha = 0f)),
                             startX = start,
                             endX = start + w
                         ),
@@ -1077,8 +894,7 @@ internal fun GlassProgress(progress: Float, indeterminate: Boolean, colors: List
                 Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(animated.coerceIn(0f, 1f))
-                    .clip(CircleShape)
-                    .background(Brush.horizontalGradient(colors))
+                    .background(color)
             )
         }
     }
@@ -1151,9 +967,9 @@ private fun AddLinkDialog(
     }
 
     GlassDialog(onDismiss) {
-        Text("Add download", color = Palette.Ice, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("Add download", color = Downly.colors.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(4.dp))
-        Text("Paste a direct link to the file you want.", color = Palette.Mist, fontSize = 14.sp)
+        Text("Paste a direct link to the file you want.", color = Downly.colors.textSecondary, fontSize = 14.sp)
         Spacer(Modifier.height(18.dp))
 
         OutlinedTextField(
@@ -1174,7 +990,7 @@ private fun AddLinkDialog(
                 Icon(
                     Icons.Rounded.ContentPaste,
                     contentDescription = "Paste from clipboard",
-                    tint = Palette.Sky,
+                    tint = Downly.colors.text,
                     modifier = Modifier
                         .padding(end = 4.dp)
                         .clip(CircleShape)
@@ -1194,7 +1010,7 @@ private fun AddLinkDialog(
         )
         if (showError) {
             Spacer(Modifier.height(8.dp))
-            Text("That doesn't look like a valid link. Check it and try again.", color = Palette.Coral, fontSize = 13.sp)
+            Text("That doesn't look like a valid link. Check it and try again.", color = Downly.colors.red, fontSize = 13.sp)
         }
 
         Spacer(Modifier.height(12.dp))
@@ -1213,11 +1029,11 @@ private fun AddLinkDialog(
         duplicate?.let { existing ->
             Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(16.dp)).padding(12.dp)) {
-                Text("Already in your list", color = Palette.Amber, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("Already in your list", color = Downly.colors.paused, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(2.dp))
                 Text(
                     "${existing.fileName.ifBlank { "This link" }}, ${stateLabel(existing).lowercase()}",
-                    color = Palette.Mist,
+                    color = Downly.colors.textSecondary,
                     fontSize = 13.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -1244,22 +1060,22 @@ private fun AddLinkDialog(
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
-                        color = Palette.Sky
+                        color = Downly.colors.text
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("Checking the link...", color = Palette.Mist, fontSize = 13.sp)
+                    Text("Checking the link...", color = Downly.colors.textSecondary, fontSize = 13.sp)
                 }
                 result != null -> {
                     val color = when (result.status) {
-                        ProbeStatus.OK -> Palette.Lime
-                        ProbeStatus.WARN -> Palette.Amber
-                        ProbeStatus.FAIL -> Palette.Coral
+                        ProbeStatus.OK -> Downly.colors.green
+                        ProbeStatus.WARN -> Downly.colors.paused
+                        ProbeStatus.FAIL -> Downly.colors.red
                     }
                     Box(Modifier.size(12.dp).clip(CircleShape).background(color))
                     Spacer(Modifier.width(8.dp))
                     Text(result.message, color = color, fontSize = 13.sp)
                 }
-                else -> Text("Tap Connect to check the link first.", color = Palette.Mist, fontSize = 13.sp)
+                else -> Text("Tap Connect to check the link first.", color = Downly.colors.textSecondary, fontSize = 13.sp)
             }
         }
 
@@ -1272,10 +1088,17 @@ private fun AddLinkDialog(
                     "Download again",
                     onClick = { submit(skipDuplicateCheck = true) },
                     icon = Icons.Rounded.Download,
-                    enabled = canDownload
+                    enabled = canDownload,
+                    green = true
                 )
             } else {
-                PillButton("Download", onClick = { submit() }, icon = Icons.Rounded.Download, enabled = canDownload)
+                PillButton(
+                    "Download",
+                    onClick = { submit() },
+                    icon = Icons.Rounded.Download,
+                    enabled = canDownload,
+                    green = true
+                )
             }
         }
     }
@@ -1284,11 +1107,11 @@ private fun AddLinkDialog(
 @Composable
 private fun ConfirmCancelDialog(fileName: String, onKeep: () -> Unit, onCancelDownload: () -> Unit) {
     GlassDialog(onKeep) {
-        Text("Cancel this download?", color = Palette.Ice, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("Cancel this download?", color = Downly.colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(
             "${fileName.ifBlank { "This file" }} will be removed and the part already downloaded will be deleted.",
-            color = Palette.Mist,
+            color = Downly.colors.textSecondary,
             fontSize = 14.sp,
             lineHeight = 20.sp
         )
@@ -1316,6 +1139,7 @@ private fun SettingsDialog(
     onInstallUpdate: () -> Unit,
     onExport: (Uri, (String) -> Unit) -> Unit,
     onImport: (Uri, (String) -> Unit) -> Unit,
+    onThemeMode: (ThemeMode) -> Unit,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1338,9 +1162,13 @@ private fun SettingsDialog(
     }
 
     GlassDialog(onClose) {
-        Text("Settings", color = Palette.Ice, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("Settings", color = Downly.colors.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(10.dp))
 
+        SettingRow(title = SettingNames.THEME, subtitle = "Day or AMOLED dark") {
+            ThemeSegmented(settings.themeMode, onThemeMode)
+        }
+        SettingDivider()
         SettingRow(
             title = SettingNames.MAX_PARALLEL,
             subtitle = "How many files download at the same time"
@@ -1420,7 +1248,7 @@ private fun SettingsDialog(
         Spacer(Modifier.height(16.dp))
         Text(
             "Downly ${appVersion(context)}".trim(),
-            color = Palette.Mist,
+            color = Downly.colors.textSecondary,
             fontSize = 13.sp,
             modifier = Modifier.align(Alignment.CenterHorizontally)
         )
@@ -1436,7 +1264,7 @@ private fun SettingsDialog(
 private fun SettingSection(title: String) {
     Text(
         title.uppercase(),
-        color = Palette.Sky,
+        color = Downly.colors.text,
         fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
         letterSpacing = 1.sp,
@@ -1451,9 +1279,9 @@ internal fun SettingRow(title: String, subtitle: String, control: @Composable ()
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, color = Palette.Ice, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, color = Downly.colors.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(2.dp))
-            Text(subtitle, color = Palette.Mist, fontSize = 13.sp, lineHeight = 18.sp)
+            Text(subtitle, color = Downly.colors.textSecondary, fontSize = 13.sp, lineHeight = 18.sp)
         }
         control()
     }
@@ -1476,7 +1304,7 @@ private fun Stepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
         )
         Text(
             "$value",
-            color = Palette.Ice,
+            color = Downly.colors.text,
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
@@ -1494,16 +1322,17 @@ private fun Stepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
 
 @Composable
 internal fun GlassSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val c = Downly.colors
     Switch(
         checked = checked,
         onCheckedChange = onCheckedChange,
         colors = SwitchDefaults.colors(
-            checkedThumbColor = Color.White,
-            checkedTrackColor = Palette.Azure,
-            checkedBorderColor = Color.Transparent,
-            uncheckedThumbColor = Palette.Mist,
-            uncheckedTrackColor = Color.White.copy(alpha = 0.12f),
-            uncheckedBorderColor = Color.White.copy(alpha = 0.25f)
+            checkedThumbColor = Color.Black,
+            checkedTrackColor = Color.White,
+            checkedBorderColor = c.whiteBorder,
+            uncheckedThumbColor = c.paused,
+            uncheckedTrackColor = c.toggleOffTrack,
+            uncheckedBorderColor = c.toggleOffBorder
         )
     )
 }
@@ -1513,17 +1342,17 @@ internal fun GlassSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
 private fun OfflineBanner() {
     Row(
         Modifier
-            .padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+            .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
             .fillMaxWidth()
             .glass(RoundedCornerShape(16.dp))
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Rounded.WifiOff, null, tint = Palette.Amber, modifier = Modifier.size(20.dp))
+        Icon(Icons.Rounded.WifiOff, null, tint = Downly.colors.paused, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(10.dp))
         Text(
             "No internet connection. Downloads continue when you are back online.",
-            color = Palette.Ice,
+            color = Downly.colors.text,
             fontSize = 13.sp,
             lineHeight = 18.sp
         )

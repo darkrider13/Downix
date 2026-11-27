@@ -28,6 +28,7 @@ object SettingsBackup {
     private const val KEY_WIFI_ONLY = "wifi_only"
     private const val KEY_NOTIFICATIONS = "notifications"
     private const val KEY_AUTO_UPDATE = "auto_update_check"
+    private const val KEY_THEME = "theme_mode"
 
     sealed interface ImportResult {
         /** [names] are the user-visible names of the settings that were restored. */
@@ -44,6 +45,7 @@ object SettingsBackup {
             .put(item(KEY_WIFI_ONLY, SettingNames.WIFI_ONLY, settings.wifiOnly))
             .put(item(KEY_NOTIFICATIONS, SettingNames.NOTIFICATIONS, settings.notifications))
             .put(item(KEY_AUTO_UPDATE, SettingNames.AUTO_UPDATE_CHECK, settings.autoUpdateCheck))
+            .put(item(KEY_THEME, SettingNames.THEME, settings.themeMode.key))
 
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
             .apply { timeZone = TimeZone.getTimeZone("UTC") }
@@ -105,6 +107,11 @@ object SettingsBackup {
                 KEY_AUTO_UPDATE -> if (value is Boolean) {
                     result = result.copy(autoUpdateCheck = value)
                     restored += SettingNames.AUTO_UPDATE_CHECK
+                } else skipped++
+
+                KEY_THEME -> if (value is String && ThemeMode.values().any { it.key == value }) {
+                    result = result.copy(themeMode = ThemeMode.fromKey(value))
+                    restored += SettingNames.THEME
                 } else skipped++
 
                 else -> skipped++

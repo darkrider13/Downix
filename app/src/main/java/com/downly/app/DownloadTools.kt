@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -82,64 +83,49 @@ fun applyListTools(items: List<DownloadItem>, filter: DownloadFilter, query: Str
     }
 }
 
-/** Filter chips with counts, and the search toggle at the end of the row. */
+/** Filter chips with counts ("All 3"). Search lives in the header now. */
 @Composable
 internal fun FilterBar(
     items: List<DownloadItem>,
     filter: DownloadFilter,
-    onFilter: (DownloadFilter) -> Unit,
-    searchOpen: Boolean,
-    onToggleSearch: () -> Unit
+    onFilter: (DownloadFilter) -> Unit
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Row(
-            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            DownloadFilter.values().forEach { option ->
-                FilterPill(
-                    label = option.label,
-                    count = items.count { option.matches(it) },
-                    selected = option == filter,
-                    onClick = { onFilter(option) }
-                )
-            }
+        DownloadFilter.values().forEach { option ->
+            FilterPill(
+                label = option.label,
+                count = items.count { option.matches(it) },
+                selected = option == filter,
+                onClick = { onFilter(option) }
+            )
         }
-        Spacer(Modifier.width(10.dp))
-        GlassIconButton(
-            icon = if (searchOpen) Icons.Rounded.Close else Icons.Rounded.Search,
-            description = if (searchOpen) "Close search" else "Search downloads",
-            onClick = onToggleSearch,
-            size = 38.dp
-        )
     }
 }
 
+/** 32 dp chip, radius 16. Selected = white with black bold text, others = glass. */
 @Composable
 private fun FilterPill(label: String, count: Int, selected: Boolean, onClick: () -> Unit) {
-    val shape = CircleShape
-    val base = if (selected) {
+    val c = Downly.colors
+    val shape = RoundedCornerShape(16.dp)
+    Box(
         Modifier
-            .clip(shape)
-            .background(Brush.horizontalGradient(listOf(Palette.Azure, Palette.Royal)), shape)
-            .border(1.dp, Color.White.copy(alpha = 0.35f), shape)
-    } else {
-        Modifier.glass(shape)
-    }
-    Row(
-        base.pressable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .height(32.dp)
+            .pressable(onClick = onClick)
+            .then(if (selected) Modifier.whiteButton(shape) else Modifier.glass(shape))
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.width(6.dp))
         Text(
-            "$count",
-            color = if (selected) Color.White.copy(alpha = 0.85f) else Palette.Mist,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium
+            "$label $count",
+            color = if (selected) Color.Black else c.textSecondary,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
         )
     }
 }
@@ -156,13 +142,13 @@ internal fun SearchField(query: String, onQueryChange: (String) -> Unit, modifie
         singleLine = true,
         shape = RoundedCornerShape(18.dp),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        leadingIcon = { Icon(Icons.Rounded.Search, null, tint = Palette.Sky) },
+        leadingIcon = { Icon(Icons.Rounded.Search, null, tint = Downly.colors.text) },
         trailingIcon = {
             if (query.isNotEmpty()) {
                 Icon(
                     Icons.Rounded.Close,
                     contentDescription = "Clear search",
-                    tint = Palette.Mist,
+                    tint = Downly.colors.textSecondary,
                     modifier = Modifier
                         .padding(end = 4.dp)
                         .clip(CircleShape)
@@ -178,43 +164,46 @@ internal fun SearchField(query: String, onQueryChange: (String) -> Unit, modifie
 
 /** Same text-field look as the Add dialog, shared by search, link and file name fields. */
 @Composable
-internal fun glassFieldColors(): TextFieldColors = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Palette.Ice,
-    unfocusedTextColor = Palette.Ice,
-    errorTextColor = Palette.Ice,
-    cursorColor = Palette.Sky,
-    errorCursorColor = Palette.Coral,
-    focusedBorderColor = Palette.Sky,
-    unfocusedBorderColor = Color.White.copy(alpha = 0.25f),
-    errorBorderColor = Palette.Coral,
-    focusedPlaceholderColor = Palette.Mist.copy(alpha = 0.6f),
-    unfocusedPlaceholderColor = Palette.Mist.copy(alpha = 0.6f),
-    errorPlaceholderColor = Palette.Mist.copy(alpha = 0.6f),
-    focusedLabelColor = Palette.Sky,
-    unfocusedLabelColor = Palette.Mist,
-    errorLabelColor = Palette.Coral,
-    focusedContainerColor = Color.White.copy(alpha = 0.06f),
-    unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
-    errorContainerColor = Color.White.copy(alpha = 0.06f)
-)
+internal fun glassFieldColors(): TextFieldColors {
+    val c = Downly.colors
+    return OutlinedTextFieldDefaults.colors(
+        focusedTextColor = c.text,
+        unfocusedTextColor = c.text,
+        errorTextColor = c.text,
+        cursorColor = c.text,
+        errorCursorColor = c.red,
+        focusedBorderColor = c.text,
+        unfocusedBorderColor = c.text.copy(alpha = 0.25f),
+        errorBorderColor = c.red,
+        focusedPlaceholderColor = c.textSecondary.copy(alpha = 0.7f),
+        unfocusedPlaceholderColor = c.textSecondary.copy(alpha = 0.7f),
+        errorPlaceholderColor = c.textSecondary.copy(alpha = 0.7f),
+        focusedLabelColor = c.text,
+        unfocusedLabelColor = c.textSecondary,
+        errorLabelColor = c.red,
+        focusedContainerColor = c.glassFill,
+        unfocusedContainerColor = c.glassFill,
+        errorContainerColor = c.glassFill
+    )
+}
 
 /** Shown instead of the list when a filter or a search has no result (not when the whole list is empty). */
 @Composable
 internal fun EmptyListMessage(filter: DownloadFilter, query: String, modifier: Modifier = Modifier) {
     val searching = query.isNotBlank()
     Column(modifier.padding(horizontal = 44.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Rounded.Search, null, tint = Palette.Mist, modifier = Modifier.size(40.dp))
+        Icon(Icons.Rounded.Search, null, tint = Downly.colors.textSecondary, modifier = Modifier.size(40.dp))
         Spacer(Modifier.height(14.dp))
         Text(
             if (searching) "No matches" else filter.emptyTitle,
-            color = Palette.Ice,
+            color = Downly.colors.text,
             fontSize = 18.sp,
             fontWeight = FontWeight.SemiBold
         )
         Spacer(Modifier.height(6.dp))
         Text(
             if (searching) "Nothing in this list matches \"${query.trim()}\"." else filter.emptyHint,
-            color = Palette.Mist,
+            color = Downly.colors.textSecondary,
             fontSize = 14.sp,
             lineHeight = 20.sp,
             textAlign = TextAlign.Center
@@ -249,9 +238,9 @@ private fun dateText(millis: Long): String =
 @Composable
 private fun DetailRow(label: String, value: String, maxLines: Int = 3) {
     Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
-        Text(label, color = Palette.Mist, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Text(label, color = Downly.colors.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(2.dp))
-        Text(value, color = Palette.Ice, fontSize = 14.sp, lineHeight = 19.sp, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+        Text(value, color = Downly.colors.text, fontSize = 14.sp, lineHeight = 19.sp, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -271,7 +260,7 @@ internal fun DetailsDialog(
             Spacer(Modifier.width(14.dp))
             Text(
                 item.fileName.ifBlank { "Getting file info" },
-                color = Palette.Ice,
+                color = Downly.colors.text,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 lineHeight = 23.sp,
@@ -289,7 +278,7 @@ internal fun DetailsDialog(
         DetailRow("Added", dateText(item.createdAt))
         SettingDivider()
         Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
-            Text("Status", color = Palette.Mist, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text("Status", color = Downly.colors.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(4.dp))
             StatusLine(item)
         }
@@ -328,12 +317,12 @@ internal fun DetailsDialog(
 @Composable
 internal fun ConfirmDeleteFileDialog(fileName: String, onKeep: () -> Unit, onDelete: () -> Unit) {
     GlassDialog(onKeep) {
-        Text("Delete file from your phone?", color = Palette.Ice, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("Delete file from your phone?", color = Downly.colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(
             "${fileName.ifBlank { "This file" }} will be deleted from your phone and removed from the list. " +
                 "This can't be undone.",
-            color = Palette.Mist,
+            color = Downly.colors.textSecondary,
             fontSize = 14.sp,
             lineHeight = 20.sp
         )
@@ -355,12 +344,12 @@ internal fun ConfirmRemoveDialog(
     onDeleteFile: () -> Unit
 ) {
     GlassDialog(onCancel) {
-        Text("Delete the file too?", color = Palette.Ice, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("Delete the file too?", color = Downly.colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(
             "${item.fileName.ifBlank { "This file" }} is saved in ${SaveLocation.savedFolderLabel(item.savedUri)}. " +
                 "If you delete the file too, it is removed from your phone and this can't be undone.",
-            color = Palette.Mist,
+            color = Downly.colors.textSecondary,
             fontSize = 14.sp,
             lineHeight = 20.sp
         )
