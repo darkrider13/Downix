@@ -3,7 +3,7 @@
     <style name="Theme.Downly" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">#FFE8EEF5</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>
