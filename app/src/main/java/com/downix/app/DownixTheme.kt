@@ -971,6 +971,7 @@ internal fun GlassBottomSheet(
  * blurred app behind it, fades in (no scale, no movement). Tap outside or Back closes it.
  * The card glides with the keyboard (followed frame by frame, see GlassCenterDialog).
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun GlassCenterDialog(
     onDismiss: () -> Unit,
