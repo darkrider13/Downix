@@ -1,11 +1,14 @@
 package com.downix.app
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -17,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -156,6 +160,19 @@ internal fun UpdateDialog(
     }
 }
 
+/**
+ * Small "update available" dot: a soft green dot with a thin, faint ring around it and a clear gap between
+ * them. Used on the settings icon (home header) and on the Update button (Settings screen).
+ */
+@Composable
+internal fun UpdateDot(modifier: Modifier = Modifier) {
+    val c = Downix.colors
+    Canvas(modifier.size(14.dp)) {
+        drawCircle(c.green.copy(alpha = 0.85f), radius = 3.dp.toPx())
+        drawCircle(c.green.copy(alpha = 0.35f), radius = 6.dp.toPx(), style = Stroke(width = 1.dp.toPx()))
+    }
+}
+
 /** "Check now" row inside the Settings screen. */
 @Composable
 internal fun UpdateSettingsRow(
@@ -178,7 +195,11 @@ internal fun UpdateSettingsRow(
     SettingRow(title = "Check now", subtitle = subtitle) {
         when {
             !configured || state is UpdateState.Checking -> Unit
-            state is UpdateState.Available -> PillButton("Update", onClick = onOpen, small = true)
+            state is UpdateState.Available -> Box {
+                PillButton("Update", onClick = onOpen, small = true)
+                // dot on the top-right corner of the button, same style as the one on the settings icon
+                UpdateDot(Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-5).dp))
+            }
             state is UpdateState.Downloading -> PillButton("View", onClick = onOpen, small = true)
             state is UpdateState.ReadyToInstall -> PillButton("Install", onClick = onInstall, small = true)
             state is UpdateState.Error && state.info != null -> PillButton("Details", onClick = onOpen, small = true)
