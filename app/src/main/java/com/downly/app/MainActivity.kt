@@ -1303,8 +1303,8 @@ private fun SettingsScreen(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 4.dp)
-                        .padding(horizontal = 6.dp, vertical = 8.dp),
+                        .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 0.dp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     PlainIconButton(
@@ -1341,7 +1341,7 @@ private fun SettingsScreen(
                         .navigationBarsPadding()
                         .padding(bottom = 8.dp)
                 ) {
-                    SettingSection("General")
+                    SettingSection("General", first = true)
                     SettingGroup {
                         SettingRow(title = SettingNames.THEME, subtitle = "Day or AMOLED dark") {
                             ThemeSegmented(draft.themeMode) { draft = draft.copy(themeMode = it) }
@@ -1404,13 +1404,13 @@ private fun SettingsScreen(
 
 /** Bold headline above a settings group (no background). */
 @Composable
-private fun SettingSection(title: String) {
+private fun SettingSection(title: String, first: Boolean = false) {
     Text(
         title,
         color = Downly.colors.text,
         fontSize = 16.sp,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 8.dp)
+        modifier = Modifier.padding(start = 20.dp, top = if (first) 6.dp else 18.dp, bottom = 8.dp)
     )
 }
 
@@ -1540,11 +1540,12 @@ internal fun GlassSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
                 .size(width = 38.dp, height = 22.dp)
                 .clip(track)
                 .background(if (checked) Color.White else c.toggleOffTrack, track)
-                .border(1.dp, if (checked) c.whiteBorder else c.toggleOffBorder, track)
+                .border(1.dp, if (checked) c.whiteBorder else c.toggleOffBorder, track),
+            contentAlignment = Alignment.CenterStart // knob is centred vertically; only x moves
         ) {
             Box(
                 Modifier
-                    .offset(x = knobX - 1.dp, y = 2.dp)
+                    .offset(x = knobX)
                     .size(16.dp)
                     .clip(CircleShape)
                     .background(if (checked) Color.Black else c.paused, CircleShape)

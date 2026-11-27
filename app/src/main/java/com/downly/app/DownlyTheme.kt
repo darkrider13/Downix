@@ -155,7 +155,9 @@ class DownlyColors(
     val plusOverlay: Color,  // overlay behind the + menu
     val whiteBorder: Color,  // border of the white buttons
     val toggleOffTrack: Color,
-    val toggleOffBorder: Color
+    val toggleOffBorder: Color,
+    val selected: Color,     // selected chip / segment (Day: deep ink, Dark: white)
+    val onSelected: Color    // text on the selected chip / segment
 )
 
 private val White = Color(0xFFFFFFFF)
@@ -182,7 +184,9 @@ val DownlyDark = DownlyColors(
     plusOverlay = Black.copy(alpha = 0.70f),
     whiteBorder = White,
     toggleOffTrack = White.copy(alpha = 0.14f),
-    toggleOffBorder = White.copy(alpha = 0.10f)
+    toggleOffBorder = White.copy(alpha = 0.10f),
+    selected = White,
+    onSelected = Black
 )
 
 val DownlyDay = DownlyColors(
@@ -206,7 +210,9 @@ val DownlyDay = DownlyColors(
     plusOverlay = Color(0xFFE8ECF8).copy(alpha = 0.52f),
     whiteBorder = Color(0xFF101828).copy(alpha = 0.16f),
     toggleOffTrack = Color(0xFF101828).copy(alpha = 0.10f),
-    toggleOffBorder = Color(0xFF101828).copy(alpha = 0.09f)
+    toggleOffBorder = Color(0xFF101828).copy(alpha = 0.09f),
+    selected = Color(0xFF1B2438),
+    onSelected = White
 )
 
 val LocalDownlyColors = staticCompositionLocalOf { DownlyDark }
@@ -343,6 +349,16 @@ internal fun Modifier.whiteButton(shape: Shape = CircleShape): Modifier = compos
         .clip(shape)
         .background(White, shape)
         .border(1.dp, c.whiteBorder, shape)
+}
+
+/**
+ * Surface of a SELECTED chip / segment. Dark mode keeps the white pill; Day mode uses a deep ink pill with
+ * white text, so it matches the soft pastel background instead of looking like a washed-out white blob.
+ */
+internal fun Modifier.selectedSurface(shape: Shape): Modifier = composed {
+    val c = Downly.colors
+    if (c.isDark) this.whiteButton(shape)
+    else this.clip(shape).background(c.selected, shape)
 }
 
 /** Soft press feedback (spring scale) for every tappable element. */
@@ -534,14 +550,14 @@ internal fun ThemeSegmented(selected: ThemeMode, onSelect: (ThemeMode) -> Unit) 
             Box(
                 Modifier
                     .heightIn(min = 30.dp)
-                    .then(if (on) Modifier.whiteButton(pill) else Modifier.clip(pill))
+                    .then(if (on) Modifier.selectedSurface(pill) else Modifier.clip(pill))
                     .pressable { onSelect(mode) }
                     .padding(horizontal = 11.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     mode.label,
-                    color = if (on) Color.Black else c.textSecondary,
+                    color = if (on) c.onSelected else c.textSecondary,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )

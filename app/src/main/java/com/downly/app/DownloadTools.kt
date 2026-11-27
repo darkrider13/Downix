@@ -111,7 +111,7 @@ internal fun FilterBar(
     }
 }
 
-/** 32 dp chip, radius 16. Selected = white with black bold text, others = glass. */
+/** 32 dp chip, radius 16. Selected = white (dark mode) or deep ink (day mode) with bold text, others = glass. */
 @Composable
 private fun FilterPill(label: String, count: Int, selected: Boolean, onClick: () -> Unit) {
     val c = Downly.colors
@@ -120,13 +120,13 @@ private fun FilterPill(label: String, count: Int, selected: Boolean, onClick: ()
         Modifier
             .height(32.dp)
             .pressable(onClick = onClick)
-            .then(if (selected) Modifier.whiteButton(shape) else Modifier.glass(shape))
+            .then(if (selected) Modifier.selectedSurface(shape) else Modifier.glass(shape))
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             "$label $count",
-            color = if (selected) Color.Black else c.textSecondary,
+            color = if (selected) c.onSelected else c.textSecondary,
             fontSize = 12.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
         )
