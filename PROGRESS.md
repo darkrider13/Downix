@@ -225,3 +225,7 @@ Not compiled here (no SDK).
 ## UI redesign (done, see UI_REDESIGN_PROGRESS.md)
 Steps 1 to 5 finished: theme + home, plus menu + Add link sheet, delete sheet + toast, full-screen Settings, final polish.
 Palette is gone, use `Downix.colors`. Popups are bottom sheets (`GlassBottomSheet`); `GlassDialog` is no longer used by any screen.
+
+## Round 6 (instant delete) - DONE
+- Delete: toast shows at once with no fade / slide, card leaves the list with no placement animation, toast no longer waits for the file delete to finish, Cancel sheet is instant too (MainActivity.kt)
+Not compiled here (no SDK).
