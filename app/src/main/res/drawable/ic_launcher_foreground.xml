@@ -7,34 +7,34 @@
     <!-- black disc -->
     <path
         android:fillColor="#000000"
-        android:pathData="M24.18,54 a29.82,29.82 0 1,0 59.64,0 a29.82,29.82 0 1,0 -59.64,0 Z" />
+        android:pathData="M30.01,54 a23.99,23.99 0 1,0 47.99,0 a23.99,23.99 0 1,0 -47.99,0 Z" />
     <!-- ring track (faint) -->
     <path
-        android:pathData="M54,24.18 A29.82,29.82 0 0,0 25.56,63.63"
+        android:pathData="M54,30.01 A23.99,23.99 0 0,0 31.11,61.75"
         android:strokeColor="#2EFFFFFF"
-        android:strokeWidth="3.85"
+        android:strokeWidth="3.1"
         android:strokeLineCap="round" />
     <!-- ring progress (white) -->
     <path
-        android:pathData="M54,24.18 A29.82,29.82 0 1,1 25.56,63.63"
+        android:pathData="M54,30.01 A23.99,23.99 0 1,1 31.11,61.75"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="3.85"
+        android:strokeWidth="3.1"
         android:strokeLineCap="round" />
     <!-- progress dot -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M20.97,63.63 a4.59,4.59 0 1,0 9.18,0 a4.59,4.59 0 1,0 -9.18,0 Z" />
+        android:pathData="M27.42,61.75 a3.69,3.69 0 1,0 7.38,0 a3.69,3.69 0 1,0 -7.38,0 Z" />
     <!-- arrow stem -->
     <path
-        android:pathData="M54,44.64 L54,59.78"
+        android:pathData="M54,46.47 L54,58.65"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.59"
+        android:strokeWidth="3.69"
         android:strokeLineCap="round" />
     <!-- arrow head -->
     <path
-        android:pathData="M47.21,54.73 L54,61.52 L60.79,54.73"
+        android:pathData="M48.54,54.59 L54,60.05 L59.46,54.59"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.59"
+        android:strokeWidth="3.69"
         android:strokeLineCap="round"
         android:strokeLineJoin="round" />
 </vector>
