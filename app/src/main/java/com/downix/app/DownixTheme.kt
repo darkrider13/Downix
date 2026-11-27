@@ -855,15 +855,16 @@ internal fun Modifier.blurWhen(active: Boolean, maxRadius: Dp = 4.dp): Modifier 
 }
 
 /**
- * Call inside a Dialog's content. Registers the popup in [PopupLayers] and returns whether another popup is
- * open above this one (then this popup should blur). It also makes the dialog window cover the WHOLE screen,
- * under the status bar and navigation bar too, so the scrim darkens them together with the app.
+ * Call inside a popup. Registers the popup in [PopupLayers] and returns whether another popup is open above this
+ * one (then this popup should blur). Popups are drawn INSIDE the app window now (no separate Dialog window), so
+ * there is no window to configure, no focus change and no inset change when popups open / close on top of each
+ * other: that was the cause of the jolts.
  */
 @Composable
 internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
     val level = remember { Snapshot.withoutReadObservation { PopupLayers.count } }
-    // true while this popup is counted in PopupLayers. A popup that starts closing (slide-down) lets go of
-    // its count at once, so the blur behind it ends together with the close, not after the animation.
+    // true while this popup is counted in PopupLayers. A popup that starts closing lets go of its count at once,
+    // so the blur behind it ends together with the close.
     val registered = remember { booleanArrayOf(false) }
     DisposableEffect(Unit) {
         PopupLayers.count++
@@ -879,74 +880,6 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
         if (closing && registered[0]) {
             registered[0] = false
             PopupLayers.count--
-        }
-    }
-    val view = LocalView.current
-    val window = (view.parent as? DialogWindowProvider)?.window
-    SideEffect {
-        window ?: return@SideEffect
-        // no system pop / fade animation when the popup window closes
-        if (window.attributes.windowAnimations != 0) window.setWindowAnimations(0)
-        // Light system bar icons inside the popup window too (the popup window is the focused window,
-        // so it decides how the status bar and the navigation bar look while it is open).
-        androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
-        }
-        // already prepared: do not touch the window again on every recomposition (that causes flicker)
-        val attrs = window.attributes
-        if (attrs.width == android.view.ViewGroup.LayoutParams.MATCH_PARENT &&
-            attrs.height == android.view.ViewGroup.LayoutParams.MATCH_PARENT &&
-            (attrs.flags and android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS) != 0 &&
-            (attrs.flags and android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS) != 0
-        ) return@SideEffect
-        window.apply {
-            setDimAmount(0f)
-            setLayout(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
-            // Without FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS the system paints the navigation bar area solid black as soon as
-            // this popup window gets focus, so the blur + scrim stopped above it. Now the popup window draws the bar
-            // background itself (transparent), and the dimmed app + scrim continue all the way down to the screen edge.
-            @Suppress("DEPRECATION")
-            clearFlags(
-                android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
-                    android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
-            )
-            addFlags(
-                android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
-            )
-            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(this, false)
-            if (android.os.Build.VERSION.SDK_INT >= 28) {
-                navigationBarDividerColor = android.graphics.Color.TRANSPARENT
-            }
-            // Keyboard: the window itself never resizes or pans (the full-screen window stays locked). On Android 11+
-            // the keyboard size is only REPORTED to the popup (insets), and GlassCenterDialog lifts the card smoothly
-            // by it, then lowers it back to its locked place when the keyboard closes. Older phones: card stays fixed.
-            @Suppress("DEPRECATION")
-            setSoftInputMode(
-                if (android.os.Build.VERSION.SDK_INT >= 30) android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-                else android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-            )
-            if (android.os.Build.VERSION.SDK_INT >= 30) {
-                attributes = attributes.also { it.fitInsetsTypes = 0 }
-            }
-            statusBarColor = android.graphics.Color.TRANSPARENT
-            navigationBarColor = android.graphics.Color.TRANSPARENT
-            if (android.os.Build.VERSION.SDK_INT >= 29) {
-                isNavigationBarContrastEnforced = false
-                isStatusBarContrastEnforced = false
-            }
-            if (android.os.Build.VERSION.SDK_INT >= 28) {
-                attributes = attributes.also {
-                    it.layoutInDisplayCutoutMode =
-                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-            }
         }
     }
     return PopupLayers.count > level + 1
@@ -967,9 +900,9 @@ internal fun GlassBottomSheet(
 }
 
 /**
- * Centered pop-up (used by "Add link" and "From clipboard"): glass card in the middle of the screen,
- * blurred app behind it, fades in (no scale, no movement). Tap outside or Back closes it.
- * The card glides with the keyboard (followed frame by frame, see GlassCenterDialog).
+ * Centered pop-up: glass card locked in the exact middle of the screen. It is drawn as an overlay inside the app
+ * window (NOT a separate Dialog window), so stacking popups, copy overlays or focus changes can never move it.
+ * Only the keyboard lifts it, and it follows the keyboard frame by frame. Tap outside or Back closes it.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -980,89 +913,80 @@ internal fun GlassCenterDialog(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val c = Downix.colors
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
-    ) {
-        // Starts after the first frame is ready (no jump), drives scrim + card from one value.
-        val progress = remember { Animatable(if (instant) 1f else 0f) }
-        if (instant) {
-            DisposableEffect(Unit) {
-                PopupLayers.instant++
-                onDispose { PopupLayers.instant-- }
-            }
-        }
-        val covered = rememberPopupCovered()
-        LaunchedEffect(Unit) {
-            if (instant) return@LaunchedEffect
-            withFrameNanos { }
-            progress.animateTo(1f, tween(150, easing = FastOutSlowInEasing))
-        }
+    BackHandler(onBack = onDismiss)
 
-        // No dim and no blur of the app is drawn here: a popup window can end above the navigation bar on some
-        // phones. The blur behind the popup is applied inside the app screen, which reaches the real screen edges.
-        // A popup that has ANOTHER popup above it blurs itself ([covered]).
-        // The card sits locked at the centre. Only when the keyboard opens it glides up (just enough room is taken
-        // from the bottom), and when the keyboard closes it glides back down to the same locked centre.
-        val density = LocalDensity.current
-        // STABLE bar sizes ("ignoring visibility"): they never change when a system bar hides / shows for a moment
-        // (for example when the system "copied" overlay or a toast takes the window focus). Before, the visible-only
-        // insets changed for a moment and the centred card slid down a little after tapping a copy button.
-        val imeInsets = WindowInsets.ime
-        val navStable = WindowInsets.navigationBarsIgnoringVisibility
-        val statusStable = WindowInsets.statusBarsIgnoringVisibility
-        val safePad = remember { intArrayOf(0) }
-        val fullH = remember { intArrayOf(0) }
-        // Keyboard lift. While the system itself animates the keyboard (Android 11+) its per-frame value is followed
-        // 1:1 with NO extra animation on top (an extra tween restarted every frame and made the card lag behind, then
-        // jump at the end). Only when the keyboard size jumps at once (older phones / some keyboards) the card glides.
-        val lift = remember { Animatable(0f) }
-        LaunchedEffect(density) {
-            val jumpPx = with(density) { 96.dp.toPx() }
-            snapshotFlow {
-                (imeInsets.getBottom(density) - navStable.getBottom(density)).coerceAtLeast(0).toFloat()
-            }.collectLatest { target ->
-                if (kotlin.math.abs(target - lift.value) <= jumpPx) {
-                    lift.snapTo(target)
-                } else {
-                    lift.animateTo(target, tween(240, easing = FastOutSlowInEasing))
-                }
+    val progress = remember { Animatable(if (instant) 1f else 0f) }
+    if (instant) {
+        DisposableEffect(Unit) {
+            PopupLayers.instant++
+            onDispose { PopupLayers.instant-- }
+        }
+    }
+    val covered = rememberPopupCovered()
+    LaunchedEffect(Unit) {
+        if (instant) return@LaunchedEffect
+        withFrameNanos { }
+        progress.animateTo(1f, tween(150, easing = FastOutSlowInEasing))
+    }
+
+    // The keyboard goes down together with the popup (the text field inside it leaves the screen).
+    val view = LocalView.current
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching {
+                (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                    as android.view.inputmethod.InputMethodManager)
+                    .hideSoftInputFromWindow(view.windowToken, 0)
             }
         }
+    }
+
+    val density = LocalDensity.current
+    val imeInsets = WindowInsets.ime
+    // Stable bar sizes (they do not change when a bar hides for a moment).
+    val navStable = WindowInsets.navigationBarsIgnoringVisibility
+    val statusStable = WindowInsets.statusBarsIgnoringVisibility
+    // Keyboard lift (Android 11+; older phones resize the whole window instead). The system animates the keyboard
+    // itself, so its per-frame value is followed 1:1 with no second animation on top (that made the card lag).
+    // Only a sudden big jump (some keyboards) glides.
+    val lift = remember { Animatable(0f) }
+    LaunchedEffect(density) {
+        if (android.os.Build.VERSION.SDK_INT < 30) return@LaunchedEffect
+        val jumpPx = with(density) { 96.dp.toPx() }
+        snapshotFlow {
+            (imeInsets.getBottom(density) - navStable.getBottom(density)).coerceAtLeast(0).toFloat()
+        }.collectLatest { target ->
+            if (kotlin.math.abs(target - lift.value) <= jumpPx) {
+                lift.snapTo(target)
+            } else {
+                lift.animateTo(target, tween(240, easing = FastOutSlowInEasing))
+            }
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .blurWhen(covered)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            )
+    ) {
         Box(
             Modifier
                 .fillMaxSize()
-                .blurWhen(covered)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss
-                )
+                // Read only in the layout phase: no recomposition on every keyboard frame.
+                .layout { measurable, constraints ->
+                    // Same safe margin at the top and the bottom, so the centre is exactly the screen centre.
+                    val pad = maxOf(statusStable.getTop(density), navStable.getBottom(density))
+                    val h = (constraints.maxHeight - lift.value.toInt() - 2 * pad).coerceAtLeast(0)
+                    val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                    layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, pad) }
+                },
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    // The lift is read only in the layout phase: no recomposition on every keyboard frame.
-                    .layout { measurable, constraints ->
-                        // LOCKED centre: the card is centred on the real screen. The safe margin is the SAME at the
-                        // top and the bottom (largest bar size ever seen, it can only grow), so no system bar change
-                        // (copy overlay, checkbox tap, focus change) can ever move the card. Only the keyboard lifts it.
-                        safePad[0] = maxOf(
-                            safePad[0],
-                            statusStable.getTop(density),
-                            navStable.getBottom(density)
-                        )
-                        val pad = safePad[0]
-                        // The window itself can change its height a little when another popup opens above it or
-                        // closes (focus change: the window may end above / reach the navigation bar). The tallest
-                        // height ever seen is used, so the centre does not follow that change = no jolt.
-                        fullH[0] = maxOf(fullH[0], constraints.maxHeight)
-                        val h = (fullH[0] - lift.value.toInt() - 2 * pad).coerceAtLeast(0)
-                        val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
-                        layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, pad) }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
             Column(
                 Modifier
                     .graphicsLayer { alpha = progress.value }
@@ -1090,7 +1014,6 @@ internal fun GlassCenterDialog(
                 )
                 Spacer(Modifier.height(12.dp))
                 content()
-            }
             }
         }
     }
