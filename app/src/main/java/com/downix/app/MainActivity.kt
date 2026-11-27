@@ -642,8 +642,6 @@ private fun MainScreen(
             item = detailsItem,
             onClose = { detailsId = null },
             onCopyLink = { copyLink(context, detailsItem.url, showToast) },
-            onShare = { shareDownloaded(context, detailsItem, showToast) },
-            onOpen = { openSavedFile(context, detailsItem.savedUri, detailsItem.fileName) },
             onDeleteFile = { confirmDeleteFile = detailsItem }
         )
     }

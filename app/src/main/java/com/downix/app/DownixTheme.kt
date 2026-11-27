@@ -1028,7 +1028,7 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
 internal fun GlassBottomSheet(
     onDismiss: () -> Unit,
     title: String,
-    instant: Boolean = false,
+    instant: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     GlassCenterDialog(onDismiss = onDismiss, title = title, instant = instant, content = content)
@@ -1043,7 +1043,7 @@ internal fun GlassBottomSheet(
 internal fun GlassCenterDialog(
     onDismiss: () -> Unit,
     title: String,
-    instant: Boolean = false,
+    instant: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val c = Downix.colors

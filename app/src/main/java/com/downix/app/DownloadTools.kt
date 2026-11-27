@@ -267,11 +267,9 @@ internal fun DetailsDialog(
     item: DownloadItem,
     onClose: () -> Unit,
     onCopyLink: () -> Unit,
-    onShare: () -> Unit,
-    onOpen: () -> Unit,
     onDeleteFile: () -> Unit
 ) {
-    GlassBottomSheet(onDismiss = onClose, title = "Details") {
+    GlassBottomSheet(onDismiss = onClose, title = "Details", instant = true) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             FileTile(item.fileName)
             Spacer(Modifier.width(12.dp))
@@ -314,13 +312,6 @@ internal fun DetailsDialog(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             PillButton("Copy link", onClick = onCopyLink, modifier = Modifier.weight(1f), primary = false)
             if (item.isCompleted) {
-                PillButton("Share file", onClick = onShare, modifier = Modifier.weight(1f), primary = false)
-            }
-        }
-        if (item.isCompleted) {
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PillButton("Open", onClick = onOpen, modifier = Modifier.weight(1f))
                 PillButton("Delete file", onClick = onDeleteFile, modifier = Modifier.weight(1f), danger = true)
             }
         }
