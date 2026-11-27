@@ -20,7 +20,11 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -372,6 +376,43 @@ internal fun GlassIconButton(
     ) {
         Box(Modifier.size(size).whiteButton(CircleShape), contentAlignment = Alignment.Center) {
             Icon(icon, contentDescription = description, tint = Color.Black, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/**
+ * Icon-only action button for the home screen (pause all, pause, resume, retry, open): no background circle.
+ * 40 dp tap area, 22 dp icon. Pressing squeezes it; when [icon] changes (pause <-> play) the old icon shrinks
+ * away and the new one grows in with a small bounce.
+ */
+@Composable
+internal fun AnimatedIconButton(
+    icon: ImageVector,
+    description: String,
+    tint: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val alpha by animateFloatAsState(if (enabled) 1f else 0.35f, tween(200), label = "iconButtonAlpha")
+    Box(
+        modifier
+            .size(40.dp)
+            .alpha(alpha)
+            .pressable(enabled = enabled, pressedScale = 0.82f, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        AnimatedContent(
+            targetState = icon,
+            transitionSpec = {
+                (fadeIn(tween(160, delayMillis = 70)) + scaleIn(
+                    initialScale = 0.4f,
+                    animationSpec = spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium)
+                )) togetherWith (fadeOut(tween(110)) + scaleOut(targetScale = 0.4f, animationSpec = tween(110)))
+            },
+            label = "iconSwap"
+        ) { shown ->
+            Icon(shown, contentDescription = description, tint = tint, modifier = Modifier.size(22.dp))
         }
     }
 }

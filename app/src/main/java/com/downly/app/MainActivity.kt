@@ -120,6 +120,7 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
@@ -619,11 +620,11 @@ private fun Header(
             onClick = onSearch,
             enabled = downloads.isNotEmpty()
         )
-        GlassIconButton(
+        AnimatedIconButton(
             icon = DownlyIcons.Pause,
             description = "Pause all downloads",
+            tint = c.text,
             onClick = onPauseAll,
-            size = 32.dp,
             enabled = active > 0
         )
         PlainIconButton(
@@ -827,7 +828,8 @@ private fun DownloadCard(
                 GlassProgress(
                     progress = item.progress,
                     indeterminate = item.state == DownloadState.DOWNLOADING && !item.hasKnownSize,
-                    color = barColor
+                    color = barColor,
+                    active = item.state == DownloadState.DOWNLOADING
                 )
             }
         } else {
@@ -845,19 +847,19 @@ private fun DownloadCard(
             )
             when {
                 item.isCompleted -> {
-                    GlassIconButton(DownlyIcons.OpenFile, "Open file", onOpen, Modifier.offset(x = (-3).dp))
+                    AnimatedIconButton(DownlyIcons.OpenFile, "Open file", c.text, onOpen)
                     PlainIconButton(DownlyIcons.Trash, "Remove from list", c.red, onRemove)
                 }
                 item.canPause -> {
-                    GlassIconButton(DownlyIcons.Pause, "Pause", onPause, Modifier.offset(x = (-3).dp))
+                    AnimatedIconButton(DownlyIcons.Pause, "Pause", c.text, onPause)
                     PlainIconButton(DownlyIcons.Close, "Cancel download", c.red, onRemove)
                 }
                 else -> {
-                    GlassIconButton(
+                    AnimatedIconButton(
                         icon = if (item.state == DownloadState.FAILED) DownlyIcons.Retry else DownlyIcons.Play,
                         description = if (item.state == DownloadState.FAILED) "Retry" else "Resume",
-                        onClick = onResume,
-                        modifier = Modifier.offset(x = (-3).dp)
+                        tint = c.text,
+                        onClick = onResume
                     )
                     PlainIconButton(DownlyIcons.Close, "Cancel download", c.red, onRemove)
                 }
@@ -937,23 +939,37 @@ private fun fileKind(name: String): ImageVector =
         else -> DownlyIcons.FileOther
     }
 
-/** 6 dp progress bar, fully rounded, flat colour (no gradient). */
+/**
+ * 7 dp glass progress bar. The fill is the bar colour at ~55 to 90 % opacity (soft glass, not solid),
+ * with a thin light border and a glossy highlight on the top half. While [active] a soft light sheen
+ * glides over the fill; the fill's width follows the progress with a smooth ease-out.
+ * Unknown size ([indeterminate]) = a glass segment sliding across the track.
+ */
 @Composable
-internal fun GlassProgress(progress: Float, indeterminate: Boolean, color: Color, modifier: Modifier = Modifier) {
+internal fun GlassProgress(
+    progress: Float,
+    indeterminate: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier,
+    active: Boolean = true
+) {
     val c = Downly.colors
-    val animated by animateFloatAsState(progress, tween(450, easing = LinearOutSlowInEasing), label = "progress")
+    val shape = RoundedCornerShape(4.dp)
+    val animated by animateFloatAsState(progress, tween(700, easing = LinearOutSlowInEasing), label = "progress")
     val sweep = rememberInfiniteTransition(label = "sweep")
     val x by sweep.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1300, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(tween(if (indeterminate) 1300 else 1900, easing = LinearEasing)),
         label = "sweepX"
     )
+    val glassBrush = Brush.horizontalGradient(listOf(color.copy(alpha = 0.55f), color.copy(alpha = 0.9f)))
+
     Box(
         modifier
             .fillMaxWidth()
-            .height(6.dp)
-            .clip(RoundedCornerShape(3.dp))
+            .height(7.dp)
+            .clip(shape)
             .background(c.track)
     ) {
         if (indeterminate) {
@@ -963,7 +979,7 @@ internal fun GlassProgress(progress: Float, indeterminate: Boolean, color: Color
                     val start = (size.width + w) * x - w
                     drawRoundRect(
                         brush = Brush.horizontalGradient(
-                            listOf(color.copy(alpha = 0f), color, color.copy(alpha = 0f)),
+                            listOf(color.copy(alpha = 0f), color.copy(alpha = 0.85f), color.copy(alpha = 0f)),
                             startX = start,
                             endX = start + w
                         ),
@@ -973,12 +989,38 @@ internal fun GlassProgress(progress: Float, indeterminate: Boolean, color: Color
                     )
                 }
             )
-        } else {
+        } else if (animated > 0.001f) {
             Box(
                 Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(animated.coerceIn(0f, 1f))
-                    .background(color)
+                    .clip(shape)
+                    .background(glassBrush)
+                    .border(0.7.dp, Color.White.copy(alpha = 0.35f), shape)
+                    .drawWithContent {
+                        drawContent()
+                        // glossy highlight on the upper half
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                listOf(Color.White.copy(alpha = 0.38f), Color.Transparent),
+                                endY = size.height * 0.62f
+                            )
+                        )
+                        // soft sheen gliding over the fill while the download runs
+                        if (active) {
+                            val w = 56.dp.toPx()
+                            val start = (size.width + w) * x - w
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    listOf(Color.Transparent, Color.White.copy(alpha = 0.5f), Color.Transparent),
+                                    startX = start,
+                                    endX = start + w
+                                ),
+                                topLeft = Offset(start, 0f),
+                                size = Size(w, size.height)
+                            )
+                        }
+                    }
             )
         }
     }
@@ -1009,11 +1051,6 @@ private fun AddLinkDialog(
     LaunchedEffect(Unit) {
         delay(250)
         runCatching { focus.requestFocus() }
-        // Nothing typed yet and a web link is on the clipboard: suggest it.
-        if (text.isBlank()) {
-            val link = runCatching { clipboard.getText()?.text }.getOrNull()?.let { extractLink(it) }
-            if (link != null) text = link
-        }
     }
 
     fun connect() {
