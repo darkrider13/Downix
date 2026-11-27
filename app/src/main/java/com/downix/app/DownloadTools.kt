@@ -153,14 +153,12 @@ private fun FilterPill(
 @Composable
 internal fun SearchField(query: String, onQueryChange: (String) -> Unit, modifier: Modifier = Modifier) {
     val c = Downix.colors
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    // The keyboard does NOT open by itself any more: it opens only when the search box is tapped.
     GlassField(
         value = query,
         onValueChange = onQueryChange,
         placeholder = "Search name or link",
         modifier = modifier,
-        focusRequester = focus,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         trailing = {
             Box(

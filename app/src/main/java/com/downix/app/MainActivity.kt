@@ -496,11 +496,8 @@ private fun MainScreen(
                     onFilter = { filter = it }
                 )
             }
-            AnimatedVisibility(
-                visible = searchOpen && downloads.isNotEmpty(),
-                enter = fadeIn(tween(200)) + expandVertically(),
-                exit = fadeOut(tween(150)) + shrinkVertically()
-            ) {
+            // No open / close animation: the search box appears and disappears at once.
+            if (searchOpen && downloads.isNotEmpty()) {
                 SearchField(
                     query = query,
                     onQueryChange = { query = it },
