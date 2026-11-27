@@ -83,8 +83,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -350,6 +352,20 @@ private fun MainScreen(
     var confirmDeleteFile by remember { mutableStateOf<DownloadItem?>(null) }
     val visible = remember(downloads, filter, query) { applyListTools(downloads, filter, query) }
     val detailsItem = downloads.firstOrNull { it.id == detailsId }
+
+    // The list is newest-first. When a NEW download is added (its id is higher than the newest one seen
+    // before) the list glides up to the top so the new card is visible. Deleting a card does not scroll.
+    val listState = rememberLazyListState()
+    var newestSeenId by remember { mutableStateOf<Long?>(null) }
+    val newestId = downloads.firstOrNull()?.id
+    LaunchedEffect(newestId, listLoaded) {
+        if (!listLoaded) return@LaunchedEffect
+        val previous = newestSeenId
+        newestSeenId = newestId
+        if (previous != null && newestId != null && newestId > previous) {
+            listState.animateScrollToItem(0)
+        }
+    }
     var showAdd by remember { mutableStateOf(false) }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var toastText by remember { mutableStateOf<String?>(null) }
@@ -493,13 +509,29 @@ private fun MainScreen(
                 } else if (visible.isEmpty()) {
                     EmptyListMessage(filter, query, Modifier.align(Alignment.Center))
                 } else {
+                    // Exactly 5 cards fill the visible list area (the bottom 100 dp stays free for the + button).
+                    // Every card has the same height and the list snaps card by card, so the 6th card and
+                    // beyond wait outside the list area: no cut-off piece is ever visible.
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val density = LocalDensity.current
+                        val gapPx = with(density) { 10.dp.roundToPx() }
+                        val reservePx = with(density) { 100.dp.roundToPx() }
+                        val areaPx = (constraints.maxHeight - reservePx).coerceAtLeast(0)
+                        val minCardPx = with(density) { 96.dp.roundToPx() }
+                        val cardPx = ((areaPx - gapPx * 4) / 5).coerceAtLeast(minCardPx)
+                        val cardHeight = with(density) { cardPx.toDp() }
+                        val listHeight = with(density) { (cardPx * 5 + gapPx * 4).toDp() }
                     LazyColumn(
-                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 100.dp),
+                        state = listState,
+                        flingBehavior = rememberSnapFlingBehavior(listState),
+                        modifier = Modifier.fillMaxWidth().height(listHeight),
+                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(visible, key = { it.id }) { item ->
                             DownloadCard(
                                 item = item,
+                                cardHeight = cardHeight,
                                 selected = item.id in selected,
                                 selectionMode = selecting,
                                 onPause = { vm.pause(item.id) },
@@ -513,6 +545,7 @@ private fun MainScreen(
                                 onLongPress = { if (item.id !in selected) selected = selected + item.id }
                             )
                         }
+                    }
                     }
                 }
             }
@@ -954,6 +987,7 @@ private fun PlusMenuOption(
 @Composable
 private fun DownloadCard(
     item: DownloadItem,
+    cardHeight: Dp,
     selected: Boolean,
     selectionMode: Boolean,
     onPause: () -> Unit,
@@ -973,6 +1007,7 @@ private fun DownloadCard(
     Column(
         modifier
             .fillMaxWidth()
+            .height(cardHeight)
             .pressable(
                 pressedScale = 0.985f,
                 onLongClick = onLongPress,
@@ -981,7 +1016,7 @@ private fun DownloadCard(
             .glass(cardShape)
             .then(if (borderAlpha > 0.01f) Modifier.border(1.5.dp, c.text.copy(alpha = borderAlpha), cardShape) else Modifier)
             .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
     ) {
         // Row 1: file tile, name, status
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1035,11 +1070,16 @@ private fun DownloadCard(
 
         // Row 3: size info, white round button, plain red icon
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // Cards have a fixed height now, so a failure reason replaces the size text (one line) instead
+            // of adding an extra row that would not fit.
+            val failedReason = if (item.state == DownloadState.FAILED) item.error?.takeIf { it.isNotBlank() } else null
             Text(
-                sizeLabel(item),
-                color = c.textSecondary,
+                failedReason ?: sizeLabel(item),
+                color = if (failedReason != null) c.red else c.textSecondary,
                 fontSize = 11.sp,
                 lineHeight = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
             when {
@@ -1064,9 +1104,6 @@ private fun DownloadCard(
             PlainIconButton(DownixIcons.Trash, "Delete", c.red, onRemove, enabled = !selectionMode)
         }
 
-        if (item.state == DownloadState.FAILED && !item.error.isNullOrBlank()) {
-            Text(item.error, color = c.red, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(end = 4.dp))
-        }
     }
 }
 
