@@ -274,6 +274,17 @@ internal fun DetailsDialog(
     GlassBottomSheet(onDismiss = onClose, title = "Details", instant = true) {
         val context = androidx.compose.ui.platform.LocalContext.current
         val nameColor = Downix.colors.text
+        val tickColor = Downix.colors.green
+        // After a tap on the copy icon a green tick shows for 1 second, then the copy icon comes back.
+        var copiedAt by remember { mutableStateOf(0L) }
+        var showTick by remember { mutableStateOf(false) }
+        LaunchedEffect(copiedAt) {
+            if (copiedAt != 0L) {
+                showTick = true
+                kotlinx.coroutines.delay(1000)
+                showTick = false
+            }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             FileTile(item.fileName)
             Spacer(Modifier.width(12.dp))
@@ -299,13 +310,16 @@ internal fun DetailsDialog(
                         Modifier
                             .fillMaxSize()
                             .clip(CircleShape)
-                            .clickable { copyFileName(context, item.fileName) },
+                            .clickable {
+                                copyFileName(context, item.fileName)
+                                copiedAt = System.nanoTime()
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            DownixIcons.Copy,
-                            contentDescription = "Copy file name",
-                            tint = nameColor,
+                            if (showTick) DownixIcons.Check else DownixIcons.Copy,
+                            contentDescription = if (showTick) "File name copied" else "Copy file name",
+                            tint = if (showTick) tickColor else nameColor,
                             modifier = Modifier.size(18.dp)
                         )
                     }

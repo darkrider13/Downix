@@ -922,9 +922,14 @@ internal fun rememberPopupCovered(closing: Boolean = false): Boolean {
             if (android.os.Build.VERSION.SDK_INT >= 28) {
                 navigationBarDividerColor = android.graphics.Color.TRANSPARENT
             }
-            // Keyboard: the pop-up window must NOT resize or pan, so the card stays exactly where it opened.
+            // Keyboard: the window itself never resizes or pans (the full-screen window stays locked). On Android 11+
+            // the keyboard size is only REPORTED to the popup (insets), and GlassCenterDialog lifts the card smoothly
+            // by it, then lowers it back to its locked place when the keyboard closes. Older phones: card stays fixed.
             @Suppress("DEPRECATION")
-            setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+            setSoftInputMode(
+                if (android.os.Build.VERSION.SDK_INT >= 30) android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                else android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            )
             if (android.os.Build.VERSION.SDK_INT >= 30) {
                 attributes = attributes.also { it.fitInsetsTypes = 0 }
             }
@@ -994,7 +999,16 @@ internal fun GlassCenterDialog(
         // No dim and no blur of the app is drawn here: a popup window can end above the navigation bar on some
         // phones. The blur behind the popup is applied inside the app screen, which reaches the real screen edges.
         // A popup that has ANOTHER popup above it blurs itself ([covered]).
-        // The card never moves: no keyboard shift, no scale, only a fade. It stays fixed at the centre.
+        // The card sits locked at the centre. Only when the keyboard opens it glides up (just enough room is taken
+        // from the bottom), and when the keyboard closes it glides back down to the same locked centre.
+        val density = LocalDensity.current
+        val keyboardPx = (WindowInsets.ime.getBottom(density) - WindowInsets.navigationBars.getBottom(density))
+            .coerceAtLeast(0)
+        val lift by animateFloatAsState(
+            targetValue = keyboardPx.toFloat(),
+            animationSpec = tween(220, easing = FastOutSlowInEasing),
+            label = "keyboardLift"
+        )
         Box(
             Modifier
                 .fillMaxSize()
@@ -1005,7 +1019,8 @@ internal fun GlassCenterDialog(
                     onClick = onDismiss
                 )
                 .statusBarsPadding()
-                .navigationBarsPadding(),
+                .navigationBarsPadding()
+                .padding(bottom = with(density) { lift.toDp() }),
             contentAlignment = Alignment.Center
         ) {
             Column(
