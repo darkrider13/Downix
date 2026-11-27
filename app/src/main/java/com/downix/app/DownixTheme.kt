@@ -45,6 +45,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalView
@@ -1032,17 +1033,32 @@ internal fun GlassBottomSheet(
 }
 
 /**
- * Like imePadding(), but the lift is eased over 220 ms. A Dialog window often gets the keyboard height in one
- * jump, which made the pop-up snap up and down; here it always glides. The value is read only while laying out,
- * so nothing is recomposed during the glide.
+ * Like imePadding(), but the pop-up glides up ONCE when the keyboard opens and down ONCE when it closes.
+ * Keyboards often report their height in two steps (for example the key rows first, the suggestion / toolbar
+ * row a moment later), and a Dialog window may get the height in one jump. Following every value made the
+ * pop-up move in two steps. Here the height is taken only after it has stopped changing for 80 ms, a later
+ * small change (less than 120 dp) while the keyboard stays open is ignored, and the move itself is one
+ * eased 260 ms glide. The value is read only while laying out, so nothing is recomposed during the glide.
  */
 internal fun Modifier.smoothImePadding(): Modifier = composed {
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
     val navBottom = WindowInsets.navigationBars.getBottom(density)
+    val raw = (imeBottom - navBottom).coerceAtLeast(0)
+    val ignoreBelowPx = with(density) { 120.dp.toPx() }
+    var target by remember { mutableIntStateOf(0) }
+    // restarts on every new height, so only a value that stays for 80 ms is used
+    LaunchedEffect(raw) {
+        delay(80)
+        if (raw == 0) {
+            target = 0
+        } else if (target == 0 || kotlin.math.abs(raw - target) > ignoreBelowPx) {
+            target = raw
+        }
+    }
     val lift = animateFloatAsState(
-        targetValue = (imeBottom - navBottom).coerceAtLeast(0).toFloat(),
-        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        targetValue = target.toFloat(),
+        animationSpec = tween(260, easing = FastOutSlowInEasing),
         label = "imeLift"
     )
     this.layout { measurable, constraints ->
