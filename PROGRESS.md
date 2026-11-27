@@ -195,6 +195,16 @@ Notes: not compiled here (no SDK). If the update check still says "up to date", 
 | R7 | `GlassProgress` (MainActivity.kt) redone: 7 dp, glass fill (bar colour at 55 to 90 % opacity), light border, glossy top highlight, soft sheen gliding while downloading (param `active`), smoother 700 ms ease-out; unknown size = glass segment sliding | DONE |
 Not compiled here (no SDK). If `AnimatedContent` / `togetherWith` fail to compile, the Compose BOM is older than expected: replace `togetherWith` with `with` and add @OptIn(ExperimentalAnimationApi::class).
 
+## Round 4 (Settings redesign, credit, update text) - ALL DONE
+| # | Step | Status |
+|---|------|--------|
+| R8 | Update popup no longer shows GitHub release text (it had commit text / file paths); it shows a fixed "What's new: Bug fixes, performance improvements and a smoother experience." (UpdateUi.kt) | DONE |
+| R9 | Settings: section labels are bold text (no white pill); Stepper is plain - / + (AnimatedIconButton); "Default folder / Reset" row removed (no folder picked = Downloads) | DONE |
+| R10 | Settings uses a draft (`draft` in SettingsScreen); an "Apply" pill appears at the right of the Settings header when anything changed; `MainViewModel.applySettings()` saves all changed values; Back / Done without Apply discards | DONE |
+| R11 | Home gear icon = classic cog (`DownlyIcons.Settings`) | DONE |
+| R12 | New file DeveloperCredit.kt: "Developed by NAME", WhatsApp / Instagram / Telegram icons, copyright line, at the bottom of Settings. Links are empty strings in `DeveloperInfo` (user adds them later; empty = tap does nothing) | DONE |
+Not compiled here (no SDK).
+
 ## Things to remember
 - Code has not been compiled yet (no network / Android SDK in the build sandbox); first real build happens when the user pushes to GitHub (Step 8 workflow)
 - Never regenerate or replace the signing key after users installed a build: every build must use the same key
