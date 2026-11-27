@@ -156,6 +156,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -345,6 +346,12 @@ private fun MainScreen(
     // List tools: filter chips, search, details popup
     var filter by rememberSaveable { mutableStateOf(DownloadFilter.ALL) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    // Search box opens / closes at once (no height animation, no card resizing). The list below it moves by the
+    // box height in one step, so a GPU slide (translation, no re-layout) hides that step: no jolt.
+    val searchScope = rememberCoroutineScope()
+    val searchJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+    var searchShift by remember { mutableStateOf(0f) }
+    val searchBoxPx = with(LocalDensity.current) { 54.dp.toPx() } // 44dp field + 10dp bottom padding
     var query by rememberSaveable { mutableStateOf("") }
     var detailsId by remember { mutableStateOf<Long?>(null) }
     var confirmDeleteFile by remember { mutableStateOf<DownloadItem?>(null) }
@@ -467,7 +474,19 @@ private fun MainScreen(
                 searchOpen = searchOpen,
                 onSearch = {
                     if (searchOpen) query = ""
-                    searchOpen = !searchOpen
+                    val opening = !searchOpen
+                    searchOpen = opening
+                    if (downloads.isNotEmpty()) {
+                        searchShift = if (opening) -searchBoxPx else searchBoxPx
+                        searchJob[0]?.cancel()
+                        searchJob[0] = searchScope.launch {
+                            animate(
+                                initialValue = searchShift,
+                                targetValue = 0f,
+                                animationSpec = tween(170, easing = FastOutSlowInEasing)
+                            ) { value, _ -> searchShift = value }
+                        }
+                    }
                 },
                 onPauseAll = vm::pauseAll,
                 onClearFinished = { confirmClear = true },
@@ -501,10 +520,13 @@ private fun MainScreen(
                 SearchField(
                     query = query,
                     onQueryChange = { query = it },
-                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
+                    modifier = Modifier
+                        .zIndex(1f)
+                        .graphicsLayer { alpha = 1f - (kotlin.math.abs(searchShift) / searchBoxPx).coerceIn(0f, 1f) }
+                        .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
                 )
             }
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            Box(Modifier.weight(1f).fillMaxWidth().graphicsLayer { translationY = searchShift }) {
                 if (!listLoaded) {
                     // still reading the list: show nothing for a moment
                 } else if (downloads.isEmpty()) {
@@ -519,7 +541,9 @@ private fun MainScreen(
                         val density = LocalDensity.current
                         val gapPx = with(density) { 10.dp.roundToPx() }
                         val reservePx = with(density) { 100.dp.roundToPx() }
-                        val areaPx = (constraints.maxHeight - reservePx).coerceAtLeast(0)
+                        // the card size does not depend on the search box: opening it never resizes the cards
+                        val searchExtra = if (searchOpen) searchBoxPx.toInt() else 0
+                        val areaPx = (constraints.maxHeight + searchExtra - reservePx).coerceAtLeast(0)
                         val minCardPx = with(density) { 96.dp.roundToPx() }
                         val cardPx = ((areaPx - gapPx * 4) / 5).coerceAtLeast(minCardPx)
                         val cardHeight = with(density) { cardPx.toDp() }
