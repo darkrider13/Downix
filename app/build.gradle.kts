@@ -123,6 +123,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.3")
     implementation("androidx.core:core-ktx:1.13.1")
+    // Installs the Compose baseline profile on first launch (sideloaded APKs get no Play compile): smoother first scrolls
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
 
     // Download engine
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
