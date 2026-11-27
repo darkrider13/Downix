@@ -37,7 +37,11 @@ import kotlinx.coroutines.launch
  */
 object DownloadNotifier {
     const val CHANNEL_PROGRESS = "downloads"
-    const val CHANNEL_DONE = "downloads_done"
+    // "_v2": Android never lets an app change the vibration of an existing channel, so the channel with
+    // vibration has a new id. The old one is removed in createChannels().
+    const val CHANNEL_DONE = "downloads_done_v2"
+    private const val CHANNEL_DONE_OLD = "downloads_done"
+    private val DONE_VIBRATION = longArrayOf(0, 300)
     const val ONGOING_ID = 1
 
     private const val FINISHED_BASE_ID = 1000
@@ -60,10 +64,13 @@ object DownloadNotifier {
         val done = NotificationChannel(
             CHANNEL_DONE,
             "Finished downloads",
-            NotificationManager.IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "Tells you when a download is complete or has failed"
+            enableVibration(true)
+            vibrationPattern = DONE_VIBRATION
         }
+        manager.deleteNotificationChannel(CHANNEL_DONE_OLD)
         manager.createNotificationChannel(progress)
         manager.createNotificationChannel(done)
     }
@@ -152,7 +159,8 @@ object DownloadNotifier {
             .setContentText(name)
             .setSubText(if (sizeBytes > 0) formatBytes(sizeBytes) else null)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVibrate(DONE_VIBRATION) // Android 7 and older (newer versions use the channel)
             .setAutoCancel(true)
             .setContentIntent(viewFileIntent(context, id, savedUri))
             .build()
@@ -171,7 +179,8 @@ object DownloadNotifier {
             .setContentText("$name: $reason")
             .setStyle(NotificationCompat.BigTextStyle().bigText("$name\n$reason"))
             .setCategory(NotificationCompat.CATEGORY_ERROR)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVibrate(DONE_VIBRATION) // Android 7 and older (newer versions use the channel)
             .setAutoCancel(true)
             .setContentIntent(openAppIntent(context))
             .addAction(0, "Retry", retryIntent(context, id))
