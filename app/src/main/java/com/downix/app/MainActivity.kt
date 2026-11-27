@@ -142,6 +142,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.State
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -161,6 +162,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -995,10 +997,10 @@ private fun BoxScope.PlusMenu(
     }
 
     // Hide / show of the + button. The scroll position is watched in a coroutine (not in composition), so while
-    // scrolling nothing recomposes; only the draw layer below changes. Hidden while the list is scrolled,
+    // scrolling nothing recomposes; only the draw layer in PlusFab changes. Hidden while the list is scrolled,
     // back only at the very top, and always visible while the menu is open.
     val fabShow = remember { Animatable(1f) }
-    var fabVisible by remember { mutableStateOf(true) }
+    val touchable = remember { mutableStateOf(true) } // read ONLY inside PlusFab, so a flip recomposes just the button
     val atTopNow by rememberUpdatedState(atTop)
     val expandedNow by rememberUpdatedState(expanded)
     LaunchedEffect(Unit) {
@@ -1006,15 +1008,31 @@ private fun BoxScope.PlusMenu(
             .distinctUntilChanged()
             .collectLatest { show ->
                 if (show) {
-                    fabVisible = true // touchable again as soon as it starts coming back
+                    touchable.value = true // touchable again as soon as it starts coming back
                     fabShow.animateTo(1f, tween(240, easing = LinearOutSlowInEasing))
                 } else {
-                    fabVisible = false // stops taking touches at once, so the list below gets them
+                    touchable.value = false // stops taking touches at once, so the list below gets them
                     fabShow.animateTo(0f, tween(180, easing = FastOutSlowInEasing))
                 }
             }
     }
-    val fabLift = with(LocalDensity.current) { 14.dp.toPx() }
+    PlusFab(fabShow, touchable, expanded, open, onToggle)
+}
+
+/**
+ * The round + button. It lives in its own composable so that hiding / showing it never recomposes the menu,
+ * and its fade does not use an offscreen buffer (ModulateAlpha), so the hide animation costs the GPU almost
+ * nothing while the list is scrolling at the same time.
+ */
+@Composable
+private fun BoxScope.PlusFab(
+    show: Animatable<Float>,
+    touchable: State<Boolean>,
+    expanded: Boolean,
+    open: State<Float>,
+    onToggle: () -> Unit
+) {
+    val lift = with(LocalDensity.current) { 14.dp.toPx() }
     Box(
         Modifier
             .align(Alignment.BottomEnd)
@@ -1022,13 +1040,14 @@ private fun BoxScope.PlusMenu(
             .padding(end = 16.dp, bottom = 18.dp)
             .size(56.dp)
             .graphicsLayer {
-                val v = fabShow.value
+                val v = show.value
+                compositingStrategy = CompositingStrategy.ModulateAlpha
                 alpha = v
                 scaleX = 0.8f + 0.2f * v
                 scaleY = 0.8f + 0.2f * v
-                translationY = fabLift * (1f - v) // soft slide: sinks a little when hiding, rises when returning
+                translationY = lift * (1f - v) // soft slide: sinks a little when hiding, rises when returning
             }
-            .then(if (fabVisible) Modifier.pressable(pressedScale = 0.9f, onClick = onToggle) else Modifier)
+            .then(if (touchable.value) Modifier.pressable(pressedScale = 0.9f, onClick = onToggle) else Modifier)
             .whiteButton(CircleShape),
         contentAlignment = Alignment.Center
     ) {
