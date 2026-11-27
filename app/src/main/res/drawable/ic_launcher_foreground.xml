@@ -1,35 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Bold strokes so the icon stays crisp at small sizes (launcher, notification shade) -->
+<!-- Bold arrow only. Black disc keeps the arrow visible on the light splash screen. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- black disc (keeps the white ring visible on the light splash screen) -->
     <path
         android:fillColor="#000000"
         android:pathData="M22,54 a32,32 0 1,0 64,0 a32,32 0 1,0 -64,0 Z" />
-    <!-- ring track -->
     <path
-        android:pathData="M54,29 A25,25 0 0,0 30.31,62"
-        android:strokeColor="#4DFFFFFF"
-        android:strokeWidth="5"
-        android:strokeLineCap="round" />
-    <!-- ring progress (white) -->
-    <path
-        android:pathData="M54,29 A25,25 0 1,1 30.31,62"
+        android:pathData="M54,35 L54,70 M38,54 L54,70 L70,54"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="5"
-        android:strokeLineCap="round" />
-    <!-- progress dot -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M25.11,62 a5.2,5.2 0 1,0 10.4,0 a5.2,5.2 0 1,0 -10.4,0 Z" />
-    <!-- arrow -->
-    <path
-        android:pathData="M54,43 L54,63.5 M45.5,55.5 L54,64 L62.5,55.5"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="5.5"
+        android:strokeWidth="9"
         android:strokeLineCap="round"
         android:strokeLineJoin="round" />
 </vector>
