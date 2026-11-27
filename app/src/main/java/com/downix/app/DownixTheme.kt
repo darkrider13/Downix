@@ -131,6 +131,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
@@ -350,6 +351,8 @@ internal fun Modifier.fadeAtListEdges(state: LazyListState, key: Any): Modifier 
     val it = info.visibleItemsInfo.firstOrNull { v -> v.key == key }
     if (it == null || it.size <= 0) {
         alpha = 1f
+        scaleX = 1f
+        scaleY = 1f
     } else {
         val size = it.size.toFloat()
         val top = info.viewportStartOffset.toFloat()
@@ -358,7 +361,15 @@ internal fun Modifier.fadeAtListEdges(state: LazyListState, key: Any): Modifier 
         val leaving = ((it.offset + size - top) / (size * 1.3f)).coerceIn(0f, 1f)
         val entering = ((bottom - it.offset) / (size * 1.3f)).coerceIn(0f, 1f)
         val t = minOf(leaving, entering)
-        alpha = t * t * (3f - 2f * t)
+        val eased = t * t * (3f - 2f * t)
+        alpha = eased
+        // Light scroll animation: a card that slides out of / into the screen also shrinks a little
+        // (to 93%) toward the side that stays on screen, then grows to full size. Same graphicsLayer, so it is
+        // free: no extra layer, no recomposition.
+        val s = 0.93f + 0.07f * eased
+        scaleX = s
+        scaleY = s
+        transformOrigin = TransformOrigin(0.5f, if (leaving < entering) 1f else 0f)
     }
 }
 
