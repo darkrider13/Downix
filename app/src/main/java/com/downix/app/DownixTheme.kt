@@ -1012,6 +1012,7 @@ internal fun GlassCenterDialog(
         val navStable = WindowInsets.navigationBarsIgnoringVisibility
         val statusStable = WindowInsets.statusBarsIgnoringVisibility
         val safePad = remember { intArrayOf(0) }
+        val fullH = remember { intArrayOf(0) }
         // Keyboard lift. While the system itself animates the keyboard (Android 11+) its per-frame value is followed
         // 1:1 with NO extra animation on top (an extra tween restarted every frame and made the card lag behind, then
         // jump at the end). Only when the keyboard size jumps at once (older phones / some keyboards) the card glides.
@@ -1052,7 +1053,11 @@ internal fun GlassCenterDialog(
                             navStable.getBottom(density)
                         )
                         val pad = safePad[0]
-                        val h = (constraints.maxHeight - lift.value.toInt() - 2 * pad).coerceAtLeast(0)
+                        // The window itself can change its height a little when another popup opens above it or
+                        // closes (focus change: the window may end above / reach the navigation bar). The tallest
+                        // height ever seen is used, so the centre does not follow that change = no jolt.
+                        fullH[0] = maxOf(fullH[0], constraints.maxHeight)
+                        val h = (fullH[0] - lift.value.toInt() - 2 * pad).coerceAtLeast(0)
                         val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
                         layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, pad) }
                     },
