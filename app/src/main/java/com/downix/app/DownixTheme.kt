@@ -418,6 +418,7 @@ internal fun Modifier.selectedSurface(shape: Shape): Modifier = composed {
 internal fun Modifier.pressable(
     enabled: Boolean = true,
     pressedScale: Float = 0.94f,
+    bounce: Float = 0.55f,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit
 ): Modifier = composed {
@@ -426,7 +427,7 @@ internal fun Modifier.pressable(
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) pressedScale else 1f,
-        animationSpec = spring(dampingRatio = 0.55f, stiffness = 600f),
+        animationSpec = spring(dampingRatio = bounce, stiffness = 600f),
         label = "press"
     )
     this

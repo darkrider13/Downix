@@ -91,7 +91,6 @@ import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.rememberUpdatedState
 import kotlin.math.abs
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -531,9 +530,9 @@ private fun MainScreen(
                 } else if (visible.isEmpty()) {
                     EmptyListMessage(filter, query, Modifier.align(Alignment.Center))
                 } else {
-                    // Exactly 5 cards fill the visible list area (the bottom 100 dp stays free for the + button).
-                    // Every card has the same height and the list snaps card by card, so the 6th card and
-                    // beyond wait outside the list area: no cut-off piece is ever visible.
+                    // The first screen still shows exactly 5 equal cards above the + button area, but the list
+                    // itself now fills the whole space and scrolls freely (normal fling, no snapping). Cards glide
+                    // under the bottom fade; the last card can scroll fully above the + button.
                     BoxWithConstraints(Modifier.fillMaxSize()) {
                         val density = LocalDensity.current
                         val gapPx = with(density) { 10.dp.roundToPx() }
@@ -542,30 +541,28 @@ private fun MainScreen(
                         val minCardPx = with(density) { 96.dp.roundToPx() }
                         val cardPx = ((areaPx - gapPx * 4) / 5).coerceAtLeast(minCardPx)
                         val cardHeight = with(density) { cardPx.toDp() }
-                        val listHeight = with(density) { (cardPx * 5 + gapPx * 4).toDp() }
-                    LazyColumn(
-                        state = listState,
-                        flingBehavior = rememberSnapFlingBehavior(listState),
-                        modifier = Modifier.fillMaxWidth().height(listHeight),
-                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(visible, key = { it.id }) { item ->
-                            DownloadCard(
-                                item = item,
-                                cardHeight = cardHeight,
-                                selected = item.id in selected,
-                                selectionMode = selecting,
-                                onPause = cardPause,
-                                onResume = cardResume,
-                                onRemove = cardRemove,
-                                onOpen = cardOpen,
-                                onDetails = cardDetails,
-                                onToggleSelect = cardToggleSelect,
-                                onLongPress = cardLongPress
-                            )
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 100.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(visible, key = { it.id }, contentType = { "download" }) { item ->
+                                DownloadCard(
+                                    item = item,
+                                    cardHeight = cardHeight,
+                                    selected = item.id in selected,
+                                    selectionMode = selecting,
+                                    onPause = cardPause,
+                                    onResume = cardResume,
+                                    onRemove = cardRemove,
+                                    onOpen = cardOpen,
+                                    onDetails = cardDetails,
+                                    onToggleSelect = cardToggleSelect,
+                                    onLongPress = cardLongPress
+                                )
+                            }
                         }
-                    }
                     }
                 }
             }
@@ -1030,6 +1027,7 @@ private fun DownloadCard(
             .height(cardHeight)
             .pressable(
                 pressedScale = 0.985f,
+                bounce = 1f, // no springy wobble on a card: a finger that starts a scroll must not shake it
                 onLongClick = { onLongPress(item.id) },
                 onClick = { if (selectionMode) onToggleSelect(item.id) else onDetails(item.id) }
             )
