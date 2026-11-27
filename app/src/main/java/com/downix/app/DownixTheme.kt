@@ -392,6 +392,27 @@ internal fun Modifier.glass(
 }
 
 /**
+ * Cheap edge fade for a lazy list: each card gets its own alpha depending on how far it has slid past the top
+ * or bottom edge. No full-screen offscreen layer and no mask, so scrolling stays smooth. Cards in the middle
+ * keep alpha 1 (no extra layer at all). The lookup is read only while drawing, so nothing recomposes.
+ */
+internal fun Modifier.fadeAtListEdges(state: LazyListState, key: Any): Modifier = this.graphicsLayer {
+    val info = state.layoutInfo
+    val it = info.visibleItemsInfo.firstOrNull { v -> v.key == key }
+    if (it == null || it.size <= 0) {
+        alpha = 1f
+    } else {
+        val size = it.size.toFloat()
+        val top = info.viewportStartOffset.toFloat()
+        val bottom = info.viewportEndOffset.toFloat()
+        // top edge: fades while the card leaves; bottom edge: fades in while the card enters
+        val leaving = ((it.offset + size - top) / (size * 0.7f)).coerceIn(0f, 1f)
+        val entering = ((bottom - it.offset) / (size * 0.8f)).coerceIn(0f, 1f)
+        alpha = minOf(leaving, entering)
+    }
+}
+
+/**
  * Soft fade at the top and bottom edge of a scrolling list, for Day and Night alike.
  * The cards themselves are faded out with a gradient mask (not covered by a coloured strip), so they melt
  * into whatever background is behind them. The top fade appears only once the list is scrolled away from the

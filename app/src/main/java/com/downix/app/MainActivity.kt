@@ -549,6 +549,7 @@ private fun MainScreen(
                         ) {
                             items(visible, key = { it.id }, contentType = { "download" }) { item ->
                                 DownloadCard(
+                                    modifier = Modifier.fadeAtListEdges(listState, item.id),
                                     item = item,
                                     cardHeight = cardHeight,
                                     selected = item.id in selected,
