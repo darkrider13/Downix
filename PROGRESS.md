@@ -28,12 +28,17 @@ The torrent button is the TOP option of the "+" menu (above "From clipboard"), m
         finish = copy to folder, duplicate detection by info hash
   - [x] "Torrent" button in "+" menu, `MagnetDialog` (`TorrentUi.kt`), clipboard magnet auto fill
   - [x] magnet:// links open Downix (manifest), Share of a magnet works, card shows "Finding peers" / "· N peers"
-- [ ] Step 2: Better torrent experience
-  - [ ] .torrent file support (open with / file picker) 
-  - [ ] File selection for multi-file torrents (choose which files to download)
-  - [ ] Card/details popup: seeds, peers, share ratio, info hash, file list
-  - [ ] Auto-resume torrents when the app starts (rows that were downloading)
+- [x] Step 2: Better torrent experience (this zip)
+  - [x] .torrent file support: "Choose .torrent file" button in the Torrent popup (file picker) + opening a .torrent from
+        any file manager / browser (manifest filters, content:/file: links). Stored in filesDir/torrent-files/<hash>.torrent,
+        row url = "torrent-file:<hash>"
+  - [x] File selection for multi-file torrents: after the info arrives the torrent is paused (error = "Choose files") and
+        `TorrentFilesDialog` opens (Back = download all, Cancel = remove torrent). Choice saved in torrents/<id>/selection.txt
+        (skipped file indexes) so it survives an app restart. Only selected files are copied to the folder.
+  - [x] Card shows "Choose files · tap resume" if the popup was missed (tap resume to open it again)
+  - [ ] Moved to step 3: details popup rows (seeds, peers, ratio, hash, file list), auto-resume at app start
 - [ ] Step 3: Control and settings
+  - [ ] Details popup (DownloadTools.kt DetailsDialog): torrent rows, auto-resume at app start
   - [ ] Settings section "Torrent": download/upload speed limit, DHT on/off, seeding after completion (+ ratio/time), max active torrents
   - [ ] Respect "Simultaneous downloads" for torrents (queue)
   - [ ] Multi-file torrent: Open = folder view, Delete = delete whole folder
@@ -45,5 +50,6 @@ The torrent button is the TOP option of the "+" menu (above "From clipboard"), m
 ## Known risks / notes
 - This step was written WITHOUT compiling (no Gradle/internet in the authoring environment).
   If GitHub Actions fails, send the red error lines: most likely a libtorrent4j method name that must be adjusted in `TorrentEngine.kt`.
+- Files touched in step 2: AndroidManifest.xml, DownloadDatabase.kt, DownixTheme.kt (Square icon), MainActivity.kt, TorrentEngine.kt, TorrentUi.kt, PROGRESS.md
 - Files touched in step 1: app/build.gradle.kts, app/proguard-rules.pro, AndroidManifest.xml, DownloadDatabase.kt,
   DownloadEngine.kt (only 2 fields in DownloadUpdate), DownixTheme.kt (Magnet icon), MainActivity.kt, new: TorrentEngine.kt, TorrentUi.kt, PROGRESS.md
