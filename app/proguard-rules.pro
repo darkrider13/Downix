@@ -12,3 +12,7 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+
+# Torrent engine (libtorrent4j talks to native code through JNI)
+-keep class org.libtorrent4j.** { *; }
+-dontwarn org.libtorrent4j.**

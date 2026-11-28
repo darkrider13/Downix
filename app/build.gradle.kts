@@ -135,5 +135,10 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
-    // Background update check
+    // Torrent engine: libtorrent4j (the libtorrent C++ library for Android) + its native code per CPU type
+    val libtorrent4j = "2.1.0-35"
+    implementation("org.libtorrent4j:libtorrent4j:$libtorrent4j")
+    implementation("org.libtorrent4j:libtorrent4j-android-arm64:$libtorrent4j")
+    implementation("org.libtorrent4j:libtorrent4j-android-arm:$libtorrent4j")
+    implementation("org.libtorrent4j:libtorrent4j-android-x86_64:$libtorrent4j")
 }
