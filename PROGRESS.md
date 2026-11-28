@@ -10,7 +10,7 @@ Add torrent (magnet link) downloads next to normal file downloads, professionall
 The torrent button is the TOP option of the "+" menu (above "From clipboard"), magnet (U shape) icon.
 
 ## Design decisions (do not change without a reason)
-- Library: libtorrent4j 2.1.0-35 (arm64, arm, x86_64 native parts) in app/build.gradle.kts.
+- Library: libtorrent4j 2.1.0-35 (arm64 native part only; x86_64 removed in step 5, 32-bit arm removed in step 7) in app/build.gradle.kts.
 - A torrent is a normal row in the `downloads` table: `kind = TORRENT`, `url` = the magnet link, `infoHash` = hash.
   The rest of the app (list, notifications, service, selection, delete) works unchanged.
 - `TorrentEngine` mirrors `DownloadEngine`: emits `DownloadUpdate` (now with `peers`, `seeds`), polls libtorrent once a second.
@@ -58,7 +58,21 @@ The torrent button is the TOP option of the "+" menu (above "From clipboard"), m
   - [x] Low storage: when the chosen files are known and do not fit, the torrent stops with "Not enough storage space" (FAILED, can be retried)
   - [x] No peers: after 90 s without peers or speed the card says "No peers yet · still searching" (`TorrentEngine.NO_PEERS`)
   - [x] README: Torrents section, settings table, project structure
-  - [ ] Not done on purpose: ABI split (all three CPU types stay in one APK) and R8 (needs a release test on the phone first)
+  - [ ] Not done on purpose: R8 (needs a release test on the phone first)
+- [x] Step 5: APK size (this zip)
+  - [x] Removed `libtorrent4j-android-x86_64` from app/build.gradle.kts (emulator-only CPU type). Files touched: app/build.gradle.kts, PROGRESS.md
+- [x] Step 6: ABI split (this zip)
+  - [x] app/build.gradle.kts: `splits { abi }` -> arm64-v8a + armeabi-v7a APKs, no universal APK (same versionCode for both, fine for sideload)
+  - [x] .github/workflows/release.yml: all APKs copied to release-apks/ as `Downix-<ver>-<abi>.apk`, each signature-checked, all uploaded to the release
+  - [x] UpdateManager.kt: `parseRelease` picks the asset matching `Build.SUPPORTED_ABIS` (fallback: old universal APK, then first APK);
+        `fetchLatestWeb` now returns ALL apk links, not only the first
+  - [x] README: download line. Files touched: build.gradle.kts, release.yml, UpdateManager.kt, README.md, PROGRESS.md
+- [x] Step 7: arm64 only (this zip)
+  - [x] app/build.gradle.kts: removed `libtorrent4j-android-arm`; `splits { abi }` now includes only "arm64-v8a" -> ONE APK `Downix-<ver>-arm64-v8a.apk`
+  - [x] README download line. Workflow and UpdateManager unchanged (they already handle one or many APKs). Files touched: build.gradle.kts, README.md, PROGRESS.md
+  - Note: old 32-bit phones cannot install the app any more (no matching CPU type). To undo: re-add the arm dependency and "armeabi-v7a" in `splits`.
+  - (Step 6 risk, still valid) Risk: written WITHOUT compiling. If the build is red check `UpdateManager.parseRelease` (firstNotNullOfOrNull) and the `splits {}` block. x86 phones get the fallback APK (no matching ABI).
+
 
 ## Known risks / notes
 - Step 4 was also written WITHOUT compiling. Extra libtorrent4j call to check if the build is red: `TorrentInfo.bencode()` (TorrentEngine.beginFinish).
