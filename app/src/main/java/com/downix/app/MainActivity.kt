@@ -1713,7 +1713,7 @@ private fun ConfirmRetryDialog(item: DownloadItem, onNo: () -> Unit, onYes: () -
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("No", onClick = onNo, modifier = Modifier.weight(1f), primary = false)
-            PillButton("Yes, download", onClick = onYes, modifier = Modifier.weight(1f))
+            PillButton("Yes, download", onClick = onYes, modifier = Modifier.weight(1f), danger = true)
         }
     }
 }
