@@ -1968,7 +1968,8 @@ private fun SettingsScreen(
                     val gap = if (contentPx > 0 && creditPx > 0) {
                         with(density) { ((viewportPx - contentPx - creditPx) / 2).toDp() }.coerceAtLeast(20.dp)
                     } else 20.dp
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    val settingsScroll = rememberScrollState()
+                    Column(Modifier.fillMaxSize().scrollEdgeFade(settingsScroll).verticalScroll(settingsScroll)) {
                         Column(Modifier.onSizeChanged { contentPx = it.height }.padding(bottom = 8.dp)) {
                         SettingSection("General", first = true)
                         SettingGroup {

@@ -436,6 +436,51 @@ internal fun Modifier.listEdgeFade(
         }
     }
 
+/**
+ * Same soft top / bottom edge fade as [listEdgeFade], for a normal scrolling Column (Settings page).
+ * Put it BEFORE verticalScroll in the modifier chain, so the fade sits on the viewport. The top fade grows once
+ * the page is scrolled down, the bottom fade stays while more settings wait below. Read only while drawing.
+ */
+internal fun Modifier.scrollEdgeFade(
+    state: androidx.compose.foundation.ScrollState,
+    top: Dp = 28.dp,
+    bottom: Dp = 90.dp
+): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val topPx = top.toPx()
+        val bottomPx = bottom.toPx()
+        val ramp = 48.dp.toPx()
+        val topStrength = (state.value / ramp).coerceIn(0f, 1f)
+        val bottomStrength = ((state.maxValue - state.value) / ramp).coerceIn(0f, 1f)
+        val curve = floatArrayOf(1f, 0.92f, 0.72f, 0.42f, 0.16f, 0f)
+        fun faded(strength: Float, a: Float) = Color.Black.copy(alpha = 1f - strength * (1f - a))
+        if (topStrength > 0.001f) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = curve.reversed().map { faded(topStrength, it) },
+                    startY = 0f,
+                    endY = topPx
+                ),
+                size = Size(size.width, topPx),
+                blendMode = BlendMode.DstIn
+            )
+        }
+        if (bottomStrength > 0.001f) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = curve.map { faded(bottomStrength, it) },
+                    startY = size.height - bottomPx,
+                    endY = size.height
+                ),
+                topLeft = Offset(0f, size.height - bottomPx),
+                size = Size(size.width, bottomPx),
+                blendMode = BlendMode.DstIn
+            )
+        }
+    }
+
 /** WHITE button surface: the default look for normal actions. */
 internal fun Modifier.whiteButton(shape: Shape = CircleShape): Modifier = composed {
     val c = Downix.colors
