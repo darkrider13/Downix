@@ -105,7 +105,7 @@ Most Android download managers are either bloated with ads or too bare to trust 
 ## Install
 
 1. Open the [**latest release**](https://github.com/darkrider13/Downix/releases/latest).
-2. Download `Downix-<version>-arm64-v8a.apk` (works on 64-bit phones, i.e. almost every phone from about 2017; old 32-bit phones are not supported).
+2. Download the APK for your phone: `Downix-<version>-arm64-v8a.apk` (almost every phone) or `Downix-<version>-armeabi-v7a.apk` (old 32-bit phones). The in-app updater picks the right one by itself.
 3. Open it on your phone and allow **Install unknown apps** if Android asks.
 
 After the first install, new versions arrive inside the app: **Settings → Updates → Check now**.
