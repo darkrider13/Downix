@@ -11,6 +11,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -28,6 +31,9 @@ import java.io.File
 /* ------------------------------------------------------------------ */
 /*  Room: entity, dao, database                                        */
 /* ------------------------------------------------------------------ */
+
+/** HTTP = normal file link. TORRENT = magnet link (the link is stored in [DownloadEntity.url]). */
+enum class DownloadKind { HTTP, TORRENT }
 
 @Entity(tableName = "downloads")
 data class DownloadEntity(
@@ -39,7 +45,9 @@ data class DownloadEntity(
     val state: String = DownloadState.QUEUED.name,
     val savedUri: String? = null,
     val error: String? = null,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val kind: String = DownloadKind.HTTP.name,
+    val infoHash: String? = null // torrents only: lets us spot the same torrent added twice
 )
 
 @Dao
@@ -57,6 +65,10 @@ interface DownloadDao {
     /** Newest row with exactly this (normalized) link, used for the "Already in your list" check. */
     @Query("SELECT * FROM downloads WHERE url = :url ORDER BY createdAt DESC LIMIT 1")
     suspend fun findByUrl(url: String): DownloadEntity?
+
+    /** Same torrent (by info hash) that is already in the list. */
+    @Query("SELECT * FROM downloads WHERE kind = 'TORRENT' AND infoHash = :hash ORDER BY createdAt DESC LIMIT 1")
+    suspend fun findByInfoHash(hash: String): DownloadEntity?
 
     /** Keeps the old file name when the new one is blank. */
     @Query(
@@ -92,7 +104,15 @@ interface DownloadDao {
     suspend fun getActiveIds(): List<Long>
 }
 
-@Database(entities = [DownloadEntity::class], version = 1, exportSchema = false)
+/** Version 2: torrent support. Old rows become normal HTTP downloads, nothing is lost. */
+private val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE downloads ADD COLUMN kind TEXT NOT NULL DEFAULT 'HTTP'")
+        db.execSQL("ALTER TABLE downloads ADD COLUMN infoHash TEXT")
+    }
+}
+
+@Database(entities = [DownloadEntity::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
 
@@ -105,7 +125,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "downix.db"
-                ).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
             }
     }
 }
@@ -126,8 +146,12 @@ data class DownloadItem(
     val savedUri: String?,
     val error: String?,
     val createdAt: Long,
-    val savingPercent: Int = -1 // 0..100 while the finished file is being saved, else -1
+    val savingPercent: Int = -1, // 0..100 while the finished file is being saved, else -1
+    val kind: DownloadKind = DownloadKind.HTTP,
+    val peers: Int = 0,          // torrents: connected peers (live only)
+    val seeds: Int = 0           // torrents: connected seeds (live only)
 ) {
+    val isTorrent: Boolean get() = kind == DownloadKind.TORRENT
     val hasKnownSize: Boolean get() = totalBytes > 0
     val progress: Float
         get() = if (totalBytes > 0) (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f) else 0f
@@ -145,6 +169,7 @@ data class DownloadItem(
 
 private fun DownloadEntity.toItem(live: DownloadUpdate?): DownloadItem {
     val parsed = runCatching { DownloadState.valueOf(state) }.getOrDefault(DownloadState.PAUSED)
+    val itemKind = runCatching { DownloadKind.valueOf(kind) }.getOrDefault(DownloadKind.HTTP)
     return if (live != null && live.state == DownloadState.DOWNLOADING) {
         DownloadItem(
             id = id,
@@ -157,7 +182,10 @@ private fun DownloadEntity.toItem(live: DownloadUpdate?): DownloadItem {
             savedUri = savedUri,
             error = null,
             createdAt = createdAt,
-            savingPercent = live.savingPercent
+            savingPercent = live.savingPercent,
+            kind = itemKind,
+            peers = live.peers,
+            seeds = live.seeds
         )
     } else {
         DownloadItem(
@@ -170,7 +198,8 @@ private fun DownloadEntity.toItem(live: DownloadUpdate?): DownloadItem {
             speedBytesPerSec = 0L,
             savedUri = savedUri,
             error = error,
-            createdAt = createdAt
+            createdAt = createdAt,
+            kind = itemKind
         )
     }
 }
@@ -204,6 +233,7 @@ class DownloadRepository private constructor(context: Context) {
     private val settingsRepo = SettingsRepository.get(context)
     private val network = NetworkMonitor(context)
     private val engine = DownloadEngine(context, network.state)
+    private val torrents = TorrentEngine(context, network.state)
     private val dao = AppDatabase.get(context).downloadDao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -234,16 +264,21 @@ class DownloadRepository private constructor(context: Context) {
         engine.setMaxParallel(settingsRepo.current.maxParallel)
         engine.setWifiOnly(settingsRepo.current.wifiOnly)
         engine.setSaveFolder(settingsRepo.current.downloadFolder)
+        torrents.setWifiOnly(settingsRepo.current.wifiOnly)
+        torrents.setSaveFolder(settingsRepo.current.downloadFolder)
         scope.launch {
             settingsRepo.settings.collect {
                 engine.setMaxParallel(it.maxParallel)
                 engine.setWifiOnly(it.wifiOnly)
                 engine.setSaveFolder(it.downloadFolder)
+                torrents.setWifiOnly(it.wifiOnly)
+                torrents.setSaveFolder(it.downloadFolder)
             }
         }
-        // Subscribe first so no engine update is missed.
+        // Subscribe first so no engine update is missed. ONE collector for both engines (HTTP + torrent):
+        // the bookkeeping maps below are touched only from this single coroutine.
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            engine.updates.collect { onUpdate(it) }
+            merge(engine.updates, torrents.updates).collect { onUpdate(it) }
         }
         ready = scope.launch { dao.resetInterrupted() }
     }
@@ -262,27 +297,70 @@ class DownloadRepository private constructor(context: Context) {
         return id
     }
 
+    /**
+     * Adds a torrent from a magnet link and starts it. Returns the new id, or null if the magnet link is invalid.
+     * The name shown first comes from the link (dn=); the real name arrives with the torrent info.
+     */
+    suspend fun addMagnet(magnet: String): Long? {
+        val clean = TorrentEngine.normalizeMagnet(magnet) ?: return null
+        ready.join()
+        val name = TorrentEngine.nameOf(clean)
+        val id = dao.insert(
+            DownloadEntity(
+                url = clean,
+                fileName = name,
+                kind = DownloadKind.TORRENT.name,
+                infoHash = TorrentEngine.infoHashOf(clean)
+            )
+        )
+        torrents.start(id, clean, name)
+        return id
+    }
+
+    /** The same torrent (same info hash) that is already in the list, or null. */
+    suspend fun findMagnetDuplicate(magnet: String): DownloadItem? {
+        val clean = TorrentEngine.normalizeMagnet(magnet) ?: return null
+        val hash = TorrentEngine.infoHashOf(clean) ?: return null
+        return dao.findByInfoHash(hash)?.toItem(null)
+    }
+
     /** true = download only on Wi-Fi (unmetered networks). Takes effect immediately. */
     fun setWifiOnly(enabled: Boolean) = engine.setWifiOnly(enabled)
 
     /** How many files may download at the same time (1 or more). Takes effect immediately. */
     fun setMaxParallel(count: Int) = engine.setMaxParallel(count)
 
-    fun pause(id: Long) = engine.pause(id)
+    // Each engine ignores ids it does not know, so both can be told (ids are shared, never clash).
+    fun pause(id: Long) {
+        engine.pause(id)
+        torrents.pause(id)
+    }
 
     /** Resume a paused download, or retry a failed one (continues from the saved part). */
     suspend fun resume(id: Long) {
         ready.join()
         val row = dao.getById(id) ?: return
-        engine.start(id, row.url, row.fileName.ifBlank { null }, row.totalBytes)
+        if (row.kind == DownloadKind.TORRENT.name) {
+            torrents.start(id, row.url, row.fileName.ifBlank { null })
+        } else {
+            engine.start(id, row.url, row.fileName.ifBlank { null }, row.totalBytes)
+        }
     }
 
     /** Stops the download and deletes the half-downloaded file. The row disappears from the list. */
-    fun cancel(id: Long) = engine.cancel(id)
+    fun cancel(id: Long) {
+        scope.launch { stopAndClean(id) }
+    }
+
+    /** Stops the download (HTTP or torrent) and deletes its half-done files. */
+    private suspend fun stopAndClean(id: Long) {
+        val row = dao.getById(id)
+        if (row?.kind == DownloadKind.TORRENT.name) torrents.cancel(id) else engine.cancel(id)
+    }
 
     /** Removes an item from the list (stops it first if needed). A finished file stays on the phone. */
     suspend fun remove(id: Long) {
-        engine.cancel(id)
+        stopAndClean(id)
         dao.deleteById(id)
     }
 
@@ -349,7 +427,7 @@ class DownloadRepository private constructor(context: Context) {
     }
 
     suspend fun pauseAll() {
-        dao.getActiveIds().forEach { engine.pause(it) }
+        dao.getActiveIds().forEach { pause(it) }
     }
 
     /* ------------------------- engine -> database ------------------------- */

@@ -239,12 +239,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun linkFromIntent(intent: Intent?): String? = when (intent?.action) {
-        // Share > Downix
-        Intent.ACTION_SEND -> extractLink(intent.getStringExtra(Intent.EXTRA_TEXT))
-        // a download link tapped in another app, Downix picked in "Open with"
-        Intent.ACTION_VIEW -> intent.data
-            ?.takeIf { it.scheme.equals("http", true) || it.scheme.equals("https", true) }
-            ?.toString()
+        // Share > Downix (a magnet link in the text wins over a web link)
+        Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT).let {
+            TorrentEngine.extractMagnet(it) ?: extractLink(it)
+        }
+        // a download link or magnet link tapped in another app, Downix picked in "Open with"
+        Intent.ACTION_VIEW -> {
+            val data = intent.data
+            when {
+                data == null -> null
+                data.scheme.equals("magnet", true) -> TorrentEngine.normalizeMagnet(data.toString())
+                data.scheme.equals("http", true) || data.scheme.equals("https", true) -> data.toString()
+                else -> null
+            }
+        }
         else -> null
     }
 }
@@ -279,6 +287,14 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
     suspend fun findDuplicate(url: String): DownloadItem? = repo.findByUrl(url)
+
+    /** Torrent: add a magnet link and keep it alive in the background like any other download. */
+    fun addMagnet(magnet: String) {
+        viewModelScope.launch {
+            if (repo.addMagnet(magnet) != null) DownloadService.start(app)
+        }
+    }
+    suspend fun findMagnetDuplicate(magnet: String): DownloadItem? = repo.findMagnetDuplicate(magnet)
     fun deleteWithFile(id: Long, onResult: (String) -> Unit) {
         viewModelScope.launch {
             val message = when (repo.deleteWithFile(id)) {
@@ -302,7 +318,8 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     fun restart(item: DownloadItem) {
         viewModelScope.launch {
             repo.remove(item.id)
-            if (repo.add(item.url, item.fileName.ifBlank { null }) != null) DownloadService.start(app)
+            val added = if (item.isTorrent) repo.addMagnet(item.url) else repo.add(item.url, item.fileName.ifBlank { null })
+            if (added != null) DownloadService.start(app)
         }
     }
     fun removeMany(ids: List<Long>) { viewModelScope.launch { ids.forEach { repo.remove(it) } } }
@@ -399,6 +416,8 @@ private fun MainScreen(
         }
     }
     var showAdd by remember { mutableStateOf(false) }
+    var showMagnet by remember { mutableStateOf(false) }
+    var magnetInitial by remember { mutableStateOf("") }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var toastText by remember { mutableStateOf<String?>(null) }
     var lastToast by remember { mutableStateOf("") }
@@ -469,8 +488,13 @@ private fun MainScreen(
     // A link shared from another app opens the add dialog with the link filled in.
     LaunchedEffect(sharedLink) {
         if (sharedLink != null) {
-            addInitial = sharedLink
-            showAdd = true
+            if (TorrentEngine.normalizeMagnet(sharedLink) != null) {
+                magnetInitial = sharedLink
+                showMagnet = true
+            } else {
+                addInitial = sharedLink
+                showAdd = true
+            }
         }
     }
 
@@ -499,7 +523,7 @@ private fun MainScreen(
 
     // The blur is switched on from the very same state that opens a popup, in the same frame (no waiting for the
     // popup window to register itself). It goes away in the same frame the popup closes.
-    val popupOpen = showAdd || showUpdate || detailsItem != null || confirmDeleteFile != null ||
+    val popupOpen = showAdd || showMagnet || showUpdate || detailsItem != null || confirmDeleteFile != null ||
         confirmRemove != null || (confirmBulk && downloads.any { it.id in selected }) ||
         confirmClear || confirmCancel != null || confirmRetry != null
     Box(Modifier.fillMaxSize().blurWhen(popupOpen || PopupLayers.count > 0)) {
@@ -619,6 +643,13 @@ private fun MainScreen(
                 addInitial = ""
                 showAdd = true
             },
+            onTorrent = {
+                menuOpen = false
+                // A magnet link on the clipboard is filled in for you; otherwise the box starts empty.
+                val copied = runCatching { clipboardManager.getText()?.text }.getOrNull()
+                magnetInitial = TorrentEngine.extractMagnet(copied) ?: ""
+                showMagnet = true
+            },
             onFromClipboard = {
                 menuOpen = false
                 // Same clipboard logic as the Add dialog: find a web link in the copied text.
@@ -683,6 +714,22 @@ private fun MainScreen(
             onSubmit = { url, fileName ->
                 vm.add(url, fileName)
                 showAdd = false
+                onSharedLinkConsumed()
+            }
+        )
+    }
+
+    if (showMagnet) {
+        MagnetDialog(
+            initial = magnetInitial,
+            onFindDuplicate = vm::findMagnetDuplicate,
+            onDismiss = {
+                showMagnet = false
+                onSharedLinkConsumed()
+            },
+            onSubmit = { magnet ->
+                vm.addMagnet(magnet)
+                showMagnet = false
                 onSharedLinkConsumed()
             }
         )
@@ -949,7 +996,8 @@ private fun EmptyState(modifier: Modifier = Modifier) {
 /**
  * Plus button + animated menu (design: plus-menu).
  * Closed: 56 white circle with a black "+". Open: "+" turns 45 degrees into "x" (250 ms), overlay fades in (200 ms),
- * and two options rise above it: "Add link" (bottom) and "From clipboard" (above), the second 60 ms later.
+ * and three options rise above it: "Add link" (bottom), "From clipboard" (above it) and "Torrent" (top, magnet icon),
+ * each a little later than the one below.
  */
 @Composable
 private fun BoxScope.PlusMenu(
@@ -958,6 +1006,7 @@ private fun BoxScope.PlusMenu(
     onToggle: () -> Unit,
     onClose: () -> Unit,
     onAddLink: () -> Unit,
+    onTorrent: () -> Unit,
     onFromClipboard: () -> Unit
 ) {
     val c = Downix.colors
@@ -996,6 +1045,7 @@ private fun BoxScope.PlusMenu(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        PlusMenuOption("Torrent", DownixIcons.Magnet, expanded, { ((open.value - 0.4f) / 0.6f).coerceIn(0f, 1f) }, onClick = onTorrent)
         PlusMenuOption("From clipboard", DownixIcons.Clipboard, expanded, { ((open.value - 0.2f) / 0.8f).coerceIn(0f, 1f) }, onClick = onFromClipboard)
         PlusMenuOption("Add link", DownixIcons.Link, expanded, { open.value }, onClick = onAddLink)
     }
@@ -1271,15 +1321,19 @@ internal fun sizeLabel(item: DownloadItem): String = when {
     else -> formatBytes(item.downloadedBytes)
 }
 
+/** Torrents show how many peers (and seeds) they are connected to: " · 12 peers". */
+private fun torrentPeers(item: DownloadItem): String =
+    if (item.isTorrent && item.peers > 0) " · ${item.peers} peers" else ""
+
 /** Which line the status text shows. Only a change of kind is animated, never the live numbers inside a kind. */
 private enum class StatusKind { CONNECTING, RUNNING, SAVING, QUEUED, WAITING, PAUSED, FAILED, COMPLETED, CANCELED }
 
 private fun statusText(kind: StatusKind, item: DownloadItem): String = when (kind) {
-    StatusKind.CONNECTING -> "Connecting"
+    StatusKind.CONNECTING -> if (item.isTorrent) "Finding peers" else "Connecting"
     StatusKind.SAVING -> "Saving file · ${maxOf(item.savingPercent, 0)}%"
     StatusKind.RUNNING ->
-        if (item.hasKnownSize) "${item.percent}% · ${formatSpeed(item.speedBytesPerSec)}"
-        else formatSpeed(item.speedBytesPerSec)
+        if (item.hasKnownSize) "${item.percent}% · ${formatSpeed(item.speedBytesPerSec)}" + torrentPeers(item)
+        else formatSpeed(item.speedBytesPerSec) + torrentPeers(item)
     StatusKind.QUEUED -> "Waiting in queue"
     StatusKind.WAITING -> item.error?.takeIf { it.isNotBlank() } ?: "Waiting for network"
     StatusKind.PAUSED -> if (item.hasKnownSize) "Paused · ${item.percent}%" else "Paused"

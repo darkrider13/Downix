@@ -1231,6 +1231,8 @@ internal object DownixIcons {
         )
     }
     val Clipboard by lazy { icon("Clipboard", "M9 4h6v3H9zM9 5H6v16h12V5h-3M9 14l2 2 4-4") }
+    // U-shaped magnet with two pole bands: the torrent button in the + menu
+    val Magnet by lazy { icon("Magnet", "M6 3h4v8a2 2 0 0 0 4 0V3h4v8a6 6 0 0 1-12 0zM6 8h4M14 8h4") }
     val Retry by lazy { icon("Retry", "M20 12a8 8 0 1 1-2.5-5.8M20 4v5h-5") }
 
     // File type tiles (video / zip / document come from the design, the rest follow the same style)
