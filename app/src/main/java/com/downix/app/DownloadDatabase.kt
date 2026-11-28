@@ -2,6 +2,7 @@ package com.downix.app
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import androidx.room.Dao
 import androidx.room.Database
@@ -17,6 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,7 +49,8 @@ data class DownloadEntity(
     val error: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val kind: String = DownloadKind.HTTP.name,
-    val infoHash: String? = null // torrents only: lets us spot the same torrent added twice
+    val infoHash: String? = null, // torrents only: lets us spot the same torrent added twice
+    val folderRef: String? = null // multi-file torrents: where their own folder is (see TorrentEngine.FOLDER_*)
 )
 
 @Dao
@@ -75,7 +78,8 @@ interface DownloadDao {
         "UPDATE downloads SET " +
             "fileName = CASE WHEN :fileName != '' THEN :fileName ELSE fileName END, " +
             "totalBytes = :totalBytes, downloadedBytes = :downloadedBytes, " +
-            "state = :state, savedUri = :savedUri, error = :error WHERE id = :id"
+            "state = :state, savedUri = :savedUri, error = :error, " +
+            "folderRef = CASE WHEN :folderRef IS NOT NULL THEN :folderRef ELSE folderRef END WHERE id = :id"
     )
     suspend fun updateState(
         id: Long,
@@ -84,7 +88,8 @@ interface DownloadDao {
         downloadedBytes: Long,
         state: String,
         savedUri: String?,
-        error: String?
+        error: String?,
+        folderRef: String?
     )
 
     @Query("DELETE FROM downloads WHERE id = :id")
@@ -102,6 +107,13 @@ interface DownloadDao {
 
     @Query("SELECT id FROM downloads WHERE state IN ('DOWNLOADING', 'QUEUED', 'WAITING')")
     suspend fun getActiveIds(): List<Long>
+
+    /** Torrents that were running when the app was closed: they start again by themselves. */
+    @Query("SELECT id FROM downloads WHERE kind = 'TORRENT' AND state IN ('DOWNLOADING', 'QUEUED', 'WAITING')")
+    suspend fun getActiveTorrentIds(): List<Long>
+
+    @Query("SELECT * FROM downloads WHERE kind = 'TORRENT' AND state = 'COMPLETED'")
+    suspend fun getCompletedTorrents(): List<DownloadEntity>
 }
 
 /** Version 2: torrent support. Old rows become normal HTTP downloads, nothing is lost. */
@@ -112,7 +124,14 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
-@Database(entities = [DownloadEntity::class], version = 2, exportSchema = false)
+/** Version 3: multi-file torrents remember their folder (Open = folder, Delete = whole folder). */
+private val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE downloads ADD COLUMN folderRef TEXT")
+    }
+}
+
+@Database(entities = [DownloadEntity::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
 
@@ -125,7 +144,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "downix.db"
-                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
             }
     }
 }
@@ -149,9 +168,14 @@ data class DownloadItem(
     val savingPercent: Int = -1, // 0..100 while the finished file is being saved, else -1
     val kind: DownloadKind = DownloadKind.HTTP,
     val peers: Int = 0,          // torrents: connected peers (live only)
-    val seeds: Int = 0           // torrents: connected seeds (live only)
+    val seeds: Int = 0,          // torrents: connected seeds (live only)
+    val infoHash: String? = null,   // torrents: the hash that identifies the torrent
+    val folderRef: String? = null,  // multi-file torrents: their folder
+    val seeding: SeedStats? = null  // finished torrent that is still being shared (live only)
 ) {
     val isTorrent: Boolean get() = kind == DownloadKind.TORRENT
+    /** A finished torrent with several files: Open shows its folder, Delete removes the whole folder. */
+    val isFolderTorrent: Boolean get() = isTorrent && !folderRef.isNullOrBlank()
     val hasKnownSize: Boolean get() = totalBytes > 0
     val progress: Float
         get() = if (totalBytes > 0) (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f) else 0f
@@ -167,7 +191,7 @@ data class DownloadItem(
     val isCompleted: Boolean get() = state == DownloadState.COMPLETED
 }
 
-private fun DownloadEntity.toItem(live: DownloadUpdate?): DownloadItem {
+private fun DownloadEntity.toItem(live: DownloadUpdate?, seed: SeedStats? = null): DownloadItem {
     val parsed = runCatching { DownloadState.valueOf(state) }.getOrDefault(DownloadState.PAUSED)
     val itemKind = runCatching { DownloadKind.valueOf(kind) }.getOrDefault(DownloadKind.HTTP)
     return if (live != null && live.state == DownloadState.DOWNLOADING) {
@@ -185,7 +209,10 @@ private fun DownloadEntity.toItem(live: DownloadUpdate?): DownloadItem {
             savingPercent = live.savingPercent,
             kind = itemKind,
             peers = live.peers,
-            seeds = live.seeds
+            seeds = live.seeds,
+            infoHash = infoHash,
+            folderRef = folderRef,
+            seeding = seed
         )
     } else {
         DownloadItem(
@@ -199,7 +226,10 @@ private fun DownloadEntity.toItem(live: DownloadUpdate?): DownloadItem {
             savedUri = savedUri,
             error = error,
             createdAt = createdAt,
-            kind = itemKind
+            kind = itemKind,
+            infoHash = infoHash,
+            folderRef = folderRef,
+            seeding = seed
         )
     }
 }
@@ -246,8 +276,8 @@ class DownloadRepository private constructor(context: Context) {
 
     /** Full list for the UI, newest first, with live progress. */
     val downloads: Flow<List<DownloadItem>> =
-        combine(dao.observeAll(), live) { rows, liveMap ->
-            rows.map { it.toItem(liveMap[it.id]) }
+        combine(dao.observeAll(), live, torrents.seeding) { rows, liveMap, seedMap ->
+            rows.map { it.toItem(liveMap[it.id], seedMap[it.id]) }
         }
 
     /** Current network (none / Wi-Fi / mobile data). */
@@ -255,6 +285,10 @@ class DownloadRepository private constructor(context: Context) {
 
     /** Number of active downloads (use it to start / stop the foreground service). */
     val activeCount: Flow<Int> = dao.observeActiveCount()
+
+    /** Active downloads + torrents being shared: the service stays alive while this is above 0. */
+    val keepAliveCount: Flow<Int> =
+        combine(dao.observeActiveCount(), torrents.seedingCount) { active, seeding -> active + seeding }
 
     /** Finishes after interrupted rows were reset; add / resume wait for it. */
     private val ready: Job
@@ -266,6 +300,7 @@ class DownloadRepository private constructor(context: Context) {
         engine.setSaveFolder(settingsRepo.current.downloadFolder)
         torrents.setWifiOnly(settingsRepo.current.wifiOnly)
         torrents.setSaveFolder(settingsRepo.current.downloadFolder)
+        torrents.configure(settingsRepo.current.toTorrentSettings())
         scope.launch {
             settingsRepo.settings.collect {
                 engine.setMaxParallel(it.maxParallel)
@@ -273,6 +308,7 @@ class DownloadRepository private constructor(context: Context) {
                 engine.setSaveFolder(it.downloadFolder)
                 torrents.setWifiOnly(it.wifiOnly)
                 torrents.setSaveFolder(it.downloadFolder)
+                torrents.configure(it.toTorrentSettings())
             }
         }
         // Subscribe first so no engine update is missed. ONE collector for both engines (HTTP + torrent):
@@ -280,7 +316,17 @@ class DownloadRepository private constructor(context: Context) {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             merge(engine.updates, torrents.updates).collect { onUpdate(it) }
         }
-        ready = scope.launch { dao.resetInterrupted() }
+        ready = scope.launch {
+            val torrentsToResume = dao.getActiveTorrentIds() // read BEFORE they are marked as paused
+            dao.resetInterrupted()
+            // Torrents that finished while seeding and were cut off by an app close: free their work folder.
+            dao.getCompletedTorrents().forEach { torrents.cleanupLeftovers(it.id, it.infoHash) }
+            // Auto-resume: torrents that were running when the app closed continue by themselves.
+            torrentsToResume.forEach { id ->
+                dao.getById(id)?.let { torrents.start(it.id, it.url, it.fileName.ifBlank { null }) }
+            }
+            if (torrentsToResume.isNotEmpty()) DownloadService.start(appContext)
+        }
     }
 
     /* ----------------------------- actions ----------------------------- */
@@ -340,9 +386,11 @@ class DownloadRepository private constructor(context: Context) {
             // the stored .torrent file is needed again: read it first, so nothing is removed if it is gone
             val bytes = torrents.readSource(item.url.removePrefix(TorrentEngine.FILE_PREFIX)) ?: return null
             remove(item.id)
+            delay(TORRENT_RELEASE_MS)
             return addTorrentFile(bytes).first
         }
         remove(item.id)
+        delay(TORRENT_RELEASE_MS) // the old torrent must be fully gone from the engine before it is added again
         return addMagnet(item.url)
     }
 
@@ -354,6 +402,11 @@ class DownloadRepository private constructor(context: Context) {
 
     /** The user's file choice: these file indexes are downloaded, the rest are skipped. */
     fun applyTorrentSelection(id: Long, selected: Set<Int>) = torrents.applySelection(id, selected)
+
+    /** Stops sharing a finished torrent (the saved files stay on the phone). */
+    fun stopSeeding(id: Long) = torrents.stopSeeding(id)
+
+    fun stopAllSeeding() = torrents.stopAllSeeding()
 
     /** The same torrent (same info hash) that is already in the list, or null. */
     suspend fun findMagnetDuplicate(magnet: String): DownloadItem? {
@@ -402,7 +455,10 @@ class DownloadRepository private constructor(context: Context) {
         dao.deleteById(id)
     }
 
-    suspend fun clearFinished() = dao.clearFinished()
+    suspend fun clearFinished() {
+        torrents.stopAllSeeding() // only finished torrents are shared, and they are all leaving the list
+        dao.clearFinished()
+    }
 
     /** The existing list item with the same link, or null. */
     suspend fun findByUrl(url: String): DownloadItem? =
@@ -421,12 +477,52 @@ class DownloadRepository private constructor(context: Context) {
             remove(id)
             return FileDeleteResult.DELETED
         }
-        val result = withContext(Dispatchers.IO) { deleteSavedFile(saved) }
+        val folder = row.folderRef
+        val result = withContext(Dispatchers.IO) {
+            if (row.kind == DownloadKind.TORRENT.name && !folder.isNullOrBlank()) deleteSavedFolder(folder)
+            else deleteSavedFile(saved)
+        }
         if (result != FileDeleteResult.FAILED) {
+            if (row.kind == DownloadKind.TORRENT.name) torrents.stopSeeding(id) // the files are gone: stop sharing them
             dao.deleteById(id)
             DownloadNotifier.cancelFinished(appContext, id)
         }
         return result
+    }
+
+    /** Deletes the whole folder of a multi-file torrent (see TorrentEngine.FOLDER_*). */
+    private fun deleteSavedFolder(ref: String): FileDeleteResult = try {
+        when {
+            ref.startsWith(TorrentEngine.FOLDER_MEDIASTORE) -> {
+                val name = ref.removePrefix(TorrentEngine.FOLDER_MEDIASTORE)
+                val path = android.os.Environment.DIRECTORY_DOWNLOADS + "/" + name
+                val removed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val column = android.provider.MediaStore.MediaColumns.RELATIVE_PATH
+                    appContext.contentResolver.delete(
+                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                        "$column = ? OR $column LIKE ?",
+                        arrayOf("$path/", "$path/%")
+                    )
+                } else 0
+                // MediaStore removes the files; the empty folder is removed too when Android allows it
+                runCatching {
+                    File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), name)
+                        .deleteRecursively()
+                }
+                if (removed > 0) FileDeleteResult.DELETED else FileDeleteResult.ALREADY_GONE
+            }
+            ref.startsWith(TorrentEngine.FOLDER_FILE) -> {
+                val dir = File(ref.removePrefix(TorrentEngine.FOLDER_FILE))
+                when {
+                    !dir.exists() -> FileDeleteResult.ALREADY_GONE
+                    dir.deleteRecursively() -> FileDeleteResult.DELETED
+                    else -> FileDeleteResult.FAILED
+                }
+            }
+            else -> deleteDocumentFile(Uri.parse(ref)) // folder inside the picked download folder
+        }
+    } catch (e: Exception) {
+        FileDeleteResult.FAILED
     }
 
     private fun deleteSavedFile(saved: String): FileDeleteResult = try {
@@ -533,11 +629,14 @@ class DownloadRepository private constructor(context: Context) {
             downloadedBytes = u.downloadedBytes,
             state = u.state.name,
             savedUri = u.savedUri,
-            error = u.error
+            error = u.error,
+            folderRef = u.folderRef
         )
     }
 
     companion object {
+        private const val TORRENT_RELEASE_MS = 800L
+
         @Volatile private var instance: DownloadRepository? = null
 
         fun get(context: Context): DownloadRepository =
@@ -546,3 +645,14 @@ class DownloadRepository private constructor(context: Context) {
             }
     }
 }
+
+/** The torrent part of [AppSettings], in the form the torrent engine wants. */
+internal fun AppSettings.toTorrentSettings() = TorrentSettings(
+    maxActive = maxTorrents,
+    downKb = torrentDownKb,
+    upKb = torrentUpKb,
+    dht = torrentDht,
+    seeding = torrentSeeding,
+    seedRatioX10 = seedRatioX10,
+    seedHours = seedHours
+)

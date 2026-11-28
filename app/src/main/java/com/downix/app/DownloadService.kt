@@ -146,6 +146,40 @@ object DownloadNotifier {
         post(context, ONGOING_ID, buildOngoing(context, active))
     }
 
+    /** The ongoing notification while nothing downloads but finished torrents are still being shared. */
+    fun buildSeeding(context: Context, seeding: List<DownloadItem>): Notification {
+        val count = seeding.size
+        val single = seeding.singleOrNull()
+        val speed = seeding.sumOf { it.seeding?.uploadSpeed ?: 0L }
+        val title = if (single != null) "Seeding ${single.fileName.ifBlank { "torrent" }}" else "Seeding $count torrents"
+        val text = buildString {
+            append(if (speed > 0) "Uploading ${formatSpeed(speed)}" else "Waiting for peers")
+            if (single != null) {
+                val ratio = single.seeding?.ratio ?: 0f
+                append(", ratio ${"%.2f".format(ratio)}")
+            }
+        }
+        return NotificationCompat.Builder(context, CHANNEL_PROGRESS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ACCENT)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setShowWhen(false)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setContentIntent(openAppIntent(context))
+            .addAction(0, "Stop seeding", stopSeedingIntent(context))
+            .build()
+    }
+
+    fun updateSeeding(context: Context, seeding: List<DownloadItem>) {
+        post(context, ONGOING_ID, buildSeeding(context, seeding))
+    }
+
     /* --------------------------- finished --------------------------- */
 
     fun notifyCompleted(context: Context, id: Long, fileName: String, savedUri: String?, sizeBytes: Long) {
@@ -215,6 +249,11 @@ object DownloadNotifier {
     private fun pauseAllIntent(context: Context): PendingIntent {
         val intent = Intent(context, DownloadService::class.java).setAction(DownloadService.ACTION_PAUSE_ALL)
         return PendingIntent.getService(context, 1, intent, IMMUTABLE_UPDATE)
+    }
+
+    private fun stopSeedingIntent(context: Context): PendingIntent {
+        val intent = Intent(context, DownloadService::class.java).setAction(DownloadService.ACTION_STOP_SEEDING)
+        return PendingIntent.getService(context, 2, intent, IMMUTABLE_UPDATE)
     }
 
     private fun retryIntent(context: Context, id: Long): PendingIntent {
@@ -331,6 +370,14 @@ class DownloadService : Service() {
                 return START_NOT_STICKY
             }
 
+            ACTION_STOP_SEEDING -> {
+                scope.launch {
+                    repo.stopAllSeeding()
+                    if (!foregroundStarted) stopSelf(startId)
+                }
+                return START_NOT_STICKY
+            }
+
             ACTION_RETRY -> {
                 if (!ensureForeground()) return START_NOT_STICKY
                 val id = intent?.getLongExtra(EXTRA_ID, -1L) ?: -1L
@@ -384,7 +431,7 @@ class DownloadService : Service() {
 
         // 1) when to stop
         watchJob = scope.launch {
-            repo.activeCount.collect { count ->
+            repo.keepAliveCount.collect { count -> // downloads + torrents being shared
                 activeNow = count
                 if (count > 0) stopJob?.cancel() else scheduleStop()
             }
@@ -393,9 +440,12 @@ class DownloadService : Service() {
         // 2) what to show, throttled to about one update per second
         renderJob = scope.launch {
             repo.downloads.conflate().collect { list ->
-                if (list.any { it.state == DownloadState.DOWNLOADING }) locks.acquire() else locks.release()
                 val active = list.filter { it.isActive }
+                val seeding = list.filter { it.seeding != null }
+                // seeding keeps the CPU / Wi-Fi awake too, otherwise uploads stop when the screen is off
+                if (list.any { it.state == DownloadState.DOWNLOADING } || seeding.isNotEmpty()) locks.acquire() else locks.release()
                 if (active.isNotEmpty()) DownloadNotifier.updateOngoing(this@DownloadService, active)
+                else if (seeding.isNotEmpty()) DownloadNotifier.updateSeeding(this@DownloadService, seeding)
                 delay(UPDATE_INTERVAL_MS)
             }
         }
@@ -422,6 +472,7 @@ class DownloadService : Service() {
     companion object {
         const val ACTION_PAUSE_ALL = "com.downix.app.action.PAUSE_ALL"
         const val ACTION_RETRY = "com.downix.app.action.RETRY"
+        const val ACTION_STOP_SEEDING = "com.downix.app.action.STOP_SEEDING"
         const val EXTRA_ID = "download_id"
 
         private const val UPDATE_INTERVAL_MS = 1_000L

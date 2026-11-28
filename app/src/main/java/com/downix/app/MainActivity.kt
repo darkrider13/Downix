@@ -376,7 +376,17 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
         if (new.wifiOnly != old.wifiOnly) settingsRepo.setWifiOnly(new.wifiOnly)
         if (new.notifications != old.notifications) settingsRepo.setNotifications(new.notifications)
         if (new.downloadFolder != old.downloadFolder) settingsRepo.setDownloadFolder(new.downloadFolder)
+        if (new.maxTorrents != old.maxTorrents) settingsRepo.setMaxTorrents(new.maxTorrents)
+        if (new.torrentDownKb != old.torrentDownKb) settingsRepo.setTorrentDownKb(new.torrentDownKb)
+        if (new.torrentUpKb != old.torrentUpKb) settingsRepo.setTorrentUpKb(new.torrentUpKb)
+        if (new.torrentDht != old.torrentDht) settingsRepo.setTorrentDht(new.torrentDht)
+        if (new.torrentSeeding != old.torrentSeeding) settingsRepo.setTorrentSeeding(new.torrentSeeding)
+        if (new.seedRatioX10 != old.seedRatioX10) settingsRepo.setSeedRatioX10(new.seedRatioX10)
+        if (new.seedHours != old.seedHours) settingsRepo.setSeedHours(new.seedHours)
     }
+
+    /** Stops sharing a finished torrent (its saved files stay on the phone). */
+    fun stopSeeding(id: Long) = repo.stopSeeding(id)
 
     /* ---------------------------- updates ---------------------------- */
 
@@ -825,14 +835,21 @@ private fun MainScreen(
         DetailsDialog(
             item = detailsItem,
             onClose = { detailsId = null },
-            onCopyLink = { copyLink(context, detailsItem.url, showToast) },
-            onDeleteFile = { confirmDeleteFile = detailsItem }
+            onCopyLink = { copyLink(context, copyableLink(detailsItem), showToast) },
+            onDeleteFile = { confirmDeleteFile = detailsItem },
+            onOpenFolder = { detailsItem.folderRef?.let { openTorrentFolder(context, it) } },
+            onStopSeeding = {
+                vm.stopSeeding(detailsItem.id)
+                showToast("Stopped seeding")
+            },
+            loadFiles = { vm.torrentFiles(detailsItem.id) }
         )
     }
 
     confirmDeleteFile?.let { item ->
         ConfirmDeleteFileDialog(
             fileName = item.fileName,
+            isFolder = item.isFolderTorrent,
             onKeep = { confirmDeleteFile = null },
             onDelete = {
                 showToast("File deleted from phone")
@@ -1346,7 +1363,7 @@ private fun DownloadCard(
             when {
                 item.isCompleted -> {
                     AnimatedIconButton(DownixIcons.Retry, "Download again", c.text, { onRetry(item) }, enabled = !selectionMode, animateSwap = false)
-                    AnimatedIconButton(DownixIcons.OpenFile, "Open file", c.text, { onOpen(item.savedUri) }, enabled = !selectionMode, animateSwap = false)
+                    AnimatedIconButton(DownixIcons.OpenFile, "Open file", c.text, { onOpen(openTarget(item)) }, enabled = !selectionMode, animateSwap = false)
                 }
                 item.canPause -> {
                     AnimatedIconButton(DownixIcons.Pause, "Pause", c.text, { onPause(item.id) }, enabled = !selectionMode, optimisticIcon = DownixIcons.Play, animateSwap = false)
@@ -1403,7 +1420,7 @@ private fun torrentPeers(item: DownloadItem): String =
     if (item.isTorrent && item.peers > 0) " · ${item.peers} peers" else ""
 
 /** Which line the status text shows. Only a change of kind is animated, never the live numbers inside a kind. */
-private enum class StatusKind { CONNECTING, RUNNING, SAVING, QUEUED, WAITING, PAUSED, FAILED, COMPLETED, CANCELED }
+private enum class StatusKind { CONNECTING, RUNNING, SAVING, QUEUED, WAITING, PAUSED, FAILED, COMPLETED, SEEDING, CANCELED }
 
 private fun statusText(kind: StatusKind, item: DownloadItem): String = when (kind) {
     StatusKind.CONNECTING -> if (item.isTorrent) "Finding peers" else "Connecting"
@@ -1418,6 +1435,10 @@ private fun statusText(kind: StatusKind, item: DownloadItem): String = when (kin
         else if (item.hasKnownSize) "Paused · ${item.percent}%" else "Paused"
     StatusKind.FAILED -> "Failed"
     StatusKind.COMPLETED -> "Completed"
+    StatusKind.SEEDING -> {
+        val seed = item.seeding
+        if (seed != null && seed.uploadSpeed > 0) "Seeding · ${formatSpeed(seed.uploadSpeed)} up" else "Seeding · ratio ${"%.2f".format(seed?.ratio ?: 0f)}"
+    }
     StatusKind.CANCELED -> "Canceled"
 }
 
@@ -1439,12 +1460,12 @@ internal fun StatusLine(item: DownloadItem) {
         DownloadState.WAITING -> StatusKind.WAITING
         DownloadState.PAUSED -> StatusKind.PAUSED
         DownloadState.FAILED -> StatusKind.FAILED
-        DownloadState.COMPLETED -> StatusKind.COMPLETED
+        DownloadState.COMPLETED -> if (item.seeding != null) StatusKind.SEEDING else StatusKind.COMPLETED
         DownloadState.CANCELED -> StatusKind.CANCELED
     }
     // Plain text (no cross-fade): a cross-fade is a whole animation machine per card, which made scrolling heavy.
     val color = when (kind) {
-        StatusKind.CONNECTING, StatusKind.RUNNING, StatusKind.SAVING, StatusKind.COMPLETED -> c.green
+        StatusKind.CONNECTING, StatusKind.RUNNING, StatusKind.SAVING, StatusKind.COMPLETED, StatusKind.SEEDING -> c.green
         StatusKind.FAILED -> c.red
         else -> c.textSecondary
     }
@@ -1968,6 +1989,68 @@ private fun SettingsScreen(
                             }
                         }
 
+                        SettingSection("Torrents")
+                        SettingGroup {
+                            SettingRow(title = SettingNames.MAX_TORRENTS, subtitle = "Torrents at the same time, the rest wait") {
+                                Stepper(
+                                    value = settings.maxTorrents,
+                                    min = AppSettings.MIN_TORRENTS,
+                                    max = AppSettings.MAX_TORRENTS,
+                                    onChange = { onApply(settings.copy(maxTorrents = it)) }
+                                )
+                            }
+                            SettingDivider()
+                            SettingRow(title = SettingNames.TORRENT_DOWN, subtitle = "Per second, all torrents together") {
+                                Stepper(
+                                    value = TorrentLimits.indexOf(TorrentLimits.SPEED_KB, settings.torrentDownKb),
+                                    min = 0,
+                                    max = TorrentLimits.SPEED_KB.lastIndex,
+                                    onChange = { onApply(settings.copy(torrentDownKb = TorrentLimits.SPEED_KB[it])) },
+                                    label = { TorrentLimits.speedLabel(TorrentLimits.SPEED_KB[it]) }
+                                )
+                            }
+                            SettingDivider()
+                            SettingRow(title = SettingNames.TORRENT_UP, subtitle = "Per second, all torrents together") {
+                                Stepper(
+                                    value = TorrentLimits.indexOf(TorrentLimits.SPEED_KB, settings.torrentUpKb),
+                                    min = 0,
+                                    max = TorrentLimits.SPEED_KB.lastIndex,
+                                    onChange = { onApply(settings.copy(torrentUpKb = TorrentLimits.SPEED_KB[it])) },
+                                    label = { TorrentLimits.speedLabel(TorrentLimits.SPEED_KB[it]) }
+                                )
+                            }
+                            SettingDivider()
+                            SettingRow(title = SettingNames.TORRENT_DHT, subtitle = "Find more peers without a tracker") {
+                                GlassSwitch(settings.torrentDht) { onApply(settings.copy(torrentDht = it)) }
+                            }
+                            SettingDivider()
+                            SettingRow(title = SettingNames.TORRENT_SEEDING, subtitle = "Keep sharing a finished torrent") {
+                                GlassSwitch(settings.torrentSeeding) { onApply(settings.copy(torrentSeeding = it)) }
+                            }
+                            if (settings.torrentSeeding) {
+                                SettingDivider()
+                                SettingRow(title = SettingNames.SEED_RATIO, subtitle = "Uploaded size divided by torrent size") {
+                                    Stepper(
+                                        value = TorrentLimits.indexOf(TorrentLimits.RATIOS_X10, settings.seedRatioX10),
+                                        min = 0,
+                                        max = TorrentLimits.RATIOS_X10.lastIndex,
+                                        onChange = { onApply(settings.copy(seedRatioX10 = TorrentLimits.RATIOS_X10[it])) },
+                                        label = { TorrentLimits.ratioLabel(TorrentLimits.RATIOS_X10[it]) }
+                                    )
+                                }
+                                SettingDivider()
+                                SettingRow(title = SettingNames.SEED_HOURS, subtitle = "Whichever comes first stops it") {
+                                    Stepper(
+                                        value = TorrentLimits.indexOf(TorrentLimits.HOURS, settings.seedHours),
+                                        min = 0,
+                                        max = TorrentLimits.HOURS.lastIndex,
+                                        onChange = { onApply(settings.copy(seedHours = TorrentLimits.HOURS[it])) },
+                                        label = { TorrentLimits.hoursLabel(TorrentLimits.HOURS[it]) }
+                                    )
+                                }
+                            }
+                        }
+
                         SettingSection("Network and alerts")
                         SettingGroup {
                             SettingRow(title = SettingNames.WIFI_ONLY, subtitle = "Never use mobile data") {
@@ -2059,7 +2142,7 @@ internal fun SettingDivider() {
  * a quick squeeze on press, a soft glow ring that pops out, and the number rolls up / down.
  */
 @Composable
-private fun Stepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
+private fun Stepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit, label: (Int) -> String = { "$it" }) {
     val c = Downix.colors
     // The 36 dp tap boxes leave empty space around the icons: shift the row so the "+" ends at the
     // same right edge as the buttons and switches in the other rows.
@@ -2077,7 +2160,7 @@ private fun Stepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
             label = "stepperValue"
         ) { shown ->
             Text(
-                "$shown",
+                label(shown),
                 color = c.text,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
@@ -2207,6 +2290,11 @@ private fun installUpdate(context: Context, vm: MainViewModel, onMessage: (Strin
 private fun Context.isGranted(permission: String): Boolean =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
-private fun openDownloaded(context: Context, savedUri: String?, onMessage: (String) -> Unit = {}) {
-    openSavedFile(context, savedUri)
+private fun openDownloaded(context: Context, target: String?, onMessage: (String) -> Unit = {}) {
+    // A multi-file torrent opens its folder (the target starts with FOLDER_TAG), everything else opens the file.
+    if (target != null && target.startsWith(FOLDER_TAG)) {
+        openTorrentFolder(context, target.removePrefix(FOLDER_TAG))
+    } else {
+        openSavedFile(context, target)
+    }
 }

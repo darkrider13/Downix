@@ -27,7 +27,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -267,7 +270,10 @@ internal fun DetailsDialog(
     item: DownloadItem,
     onClose: () -> Unit,
     onCopyLink: () -> Unit,
-    onDeleteFile: () -> Unit
+    onDeleteFile: () -> Unit,
+    onOpenFolder: () -> Unit = {},
+    onStopSeeding: () -> Unit = {},
+    loadFiles: suspend () -> List<TorrentFileInfo>? = { null }
 ) {
     GlassBottomSheet(onDismiss = onClose, title = "Details", instant = true) {
         val context = androidx.compose.ui.platform.LocalContext.current
@@ -335,8 +341,17 @@ internal fun DetailsDialog(
         }
         Spacer(Modifier.height(10.dp))
         SettingDivider()
-        DetailRow("Link", item.url, maxLines = 4)
-        SettingDivider()
+        if (item.isTorrent) {
+            DetailRow("Type", if (item.url.startsWith(TorrentEngine.FILE_PREFIX)) "Torrent (.torrent file)" else "Torrent (magnet link)")
+            SettingDivider()
+            if (!item.url.startsWith(TorrentEngine.FILE_PREFIX)) {
+                DetailRow("Link", item.url, maxLines = 4)
+                SettingDivider()
+            }
+        } else {
+            DetailRow("Link", item.url, maxLines = 4)
+            SettingDivider()
+        }
         DetailRow("Size", detailSize(item))
         SettingDivider()
         DetailRow("Added", dateText(item.createdAt))
@@ -346,6 +361,7 @@ internal fun DetailsDialog(
             Spacer(Modifier.height(4.dp))
             StatusLine(item)
         }
+        if (item.isTorrent) TorrentDetailRows(item, loadFiles)
         SettingDivider()
         DetailRow(
             "Saved to",
@@ -358,21 +374,109 @@ internal fun DetailsDialog(
         }
 
         Spacer(Modifier.height(14.dp))
+        if (item.seeding != null) {
+            PillButton("Stop seeding", onClick = onStopSeeding, modifier = Modifier.fillMaxWidth(), primary = false)
+            Spacer(Modifier.height(10.dp))
+        }
+        if (item.isFolderTorrent) {
+            PillButton("Open folder", onClick = onOpenFolder, modifier = Modifier.fillMaxWidth(), primary = false)
+            Spacer(Modifier.height(10.dp))
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             PillButton("Copy link", onClick = onCopyLink, modifier = Modifier.weight(1f), primary = false)
             if (item.isCompleted) {
-                PillButton("Delete file", onClick = onDeleteFile, modifier = Modifier.weight(1f), danger = true)
+                PillButton(
+                    if (item.isFolderTorrent) "Delete folder" else "Delete file",
+                    onClick = onDeleteFile, modifier = Modifier.weight(1f), danger = true
+                )
             }
         }
     }
 }
 
+/** Extra rows for a torrent: hash, peers and seeds, sharing numbers and the list of files. */
+@Composable
+private fun TorrentDetailRows(item: DownloadItem, loadFiles: suspend () -> List<TorrentFileInfo>?) {
+    val c = Downix.colors
+    item.infoHash?.takeIf { it.isNotBlank() }?.let {
+        SettingDivider()
+        DetailRow("Info hash", it, maxLines = 2)
+    }
+    if (item.state == DownloadState.DOWNLOADING && item.savingPercent < 0) {
+        SettingDivider()
+        DetailRow("Connections", "${item.peers} peers, ${item.seeds} seeds")
+    }
+    item.seeding?.let { seed ->
+        SettingDivider()
+        val text = if (seed.uploadSpeed > 0) "Uploading ${formatSpeed(seed.uploadSpeed)}" else "Waiting for peers"
+        DetailRow(
+            "Seeding",
+            "$text\nRatio ${"%.2f".format(seed.ratio)}, ${formatBytes(seed.uploaded)} shared, ${seed.peers} peers"
+        )
+    }
+    // The file list comes from the torrent engine, so it is only there while the torrent is running or shared.
+    val files by produceState<List<TorrentFileInfo>?>(null, item.id, item.state, item.seeding != null) { value = loadFiles() }
+    val list = files
+    if (list != null && list.size > 1) {
+        SettingDivider()
+        Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
+            Text(
+                "Files (${list.count { it.selected }} of ${list.size} selected)",
+                color = c.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(6.dp))
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 180.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .glass(RoundedCornerShape(12.dp))
+                    .verticalScroll(rememberScrollState())
+            ) {
+                list.forEach { file ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            file.path.substringAfterLast('/'),
+                            color = if (file.selected) c.text else c.textSecondary,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (file.selected) formatBytes(file.size) else "Skipped",
+                            color = c.textSecondary, fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The text to copy for "Copy link": a torrent that came from a .torrent file is copied as a magnet link. */
+internal fun copyableLink(item: DownloadItem): String =
+    if (item.url.startsWith(TorrentEngine.FILE_PREFIX) && !item.infoHash.isNullOrBlank())
+        "magnet:?xt=urn:btih:${item.infoHash}"
+    else item.url
+
 /** Delete sheet opened from the details popup (file is already known to be on the phone). */
 @Composable
-internal fun ConfirmDeleteFileDialog(fileName: String, onKeep: () -> Unit, onDelete: () -> Unit) {
-    GlassBottomSheet(onDismiss = onKeep, title = "Delete file from phone?", instant = true) {
+internal fun ConfirmDeleteFileDialog(
+    fileName: String,
+    onKeep: () -> Unit,
+    onDelete: () -> Unit,
+    isFolder: Boolean = false
+) {
+    GlassBottomSheet(onDismiss = onKeep, title = if (isFolder) "Delete folder from phone?" else "Delete file from phone?", instant = true) {
         Text(
-            "${fileName.ifBlank { "This file" }} will be deleted from your phone and removed from the list. This can't be undone.",
+            "${fileName.ifBlank { if (isFolder) "This folder" else "This file" }} will be deleted from your phone" +
+                (if (isFolder) " with all the files in it" else "") +
+                " and removed from the list. This can't be undone.",
             color = Downix.colors.textSecondary,
             fontSize = 13.sp,
             lineHeight = 18.sp
@@ -418,7 +522,10 @@ internal fun ConfirmRemoveDialog(
             DownixCheckbox(alsoFile)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("Also delete the file from phone", color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (item.isFolderTorrent) "Also delete the folder from phone" else "Also delete the file from phone",
+                    color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold
+                )
                 Text("This can't be undone", color = c.textSecondary, fontSize = 11.sp)
             }
         }
@@ -612,6 +719,44 @@ internal fun openSavedFile(context: Context, savedUri: String?, fileName: String
     } catch (e: Exception) {
         Toast.makeText(context, "Can't open this file", Toast.LENGTH_SHORT).show()
     }
+}
+
+/** Tag put in front of a folder reference when it is passed around as "the thing to open". */
+internal const val FOLDER_TAG = "folder:"
+
+/** What the Open button of a card opens: the folder of a multi-file torrent, otherwise the saved file. */
+internal fun openTarget(item: DownloadItem): String? =
+    if (item.isFolderTorrent) FOLDER_TAG + item.folderRef else item.savedUri
+
+/** Opens the folder of a multi-file torrent in a file manager. Falls back to the system Downloads list. */
+internal fun openTorrentFolder(context: Context, folderRef: String) {
+    val intent = Intent(Intent.ACTION_VIEW).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    when {
+        folderRef.startsWith(TorrentEngine.FOLDER_MEDIASTORE) -> {
+            val name = folderRef.removePrefix(TorrentEngine.FOLDER_MEDIASTORE)
+            val docId = "primary:" + android.os.Environment.DIRECTORY_DOWNLOADS + "/" + name
+            intent.setDataAndType(
+                android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", docId),
+                android.provider.DocumentsContract.Document.MIME_TYPE_DIR
+            )
+        }
+        folderRef.startsWith(TorrentEngine.FOLDER_FILE) -> {
+            openDownloadsList(context)
+            return
+        }
+        else -> intent.setDataAndType(Uri.parse(folderRef), android.provider.DocumentsContract.Document.MIME_TYPE_DIR)
+    }
+    try {
+        val activity = context.findActivity()
+        if (activity != null) activity.startActivity(intent) else context.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (e: Exception) {
+        // no file manager can open this folder directly: show the system Downloads list instead
+        openDownloadsList(context)
+    }
+}
+
+private fun openDownloadsList(context: Context) {
+    launchExternal(context, Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS), "Can't open the folder")
 }
 
 internal fun mimeFromName(name: String): String =

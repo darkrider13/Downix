@@ -18,6 +18,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -25,6 +26,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -32,6 +36,7 @@ import org.libtorrent4j.AddTorrentParams
 import org.libtorrent4j.Priority
 import org.libtorrent4j.SessionHandle
 import org.libtorrent4j.SessionManager
+import org.libtorrent4j.SettingsPack
 import org.libtorrent4j.Sha1Hash
 import org.libtorrent4j.TorrentFlags
 import org.libtorrent4j.TorrentHandle
@@ -44,7 +49,21 @@ import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 
 /** One file inside a torrent (for the "Choose files" popup). [index] is the position inside the torrent. */
-data class TorrentFileInfo(val index: Int, val path: String, val size: Long)
+data class TorrentFileInfo(val index: Int, val path: String, val size: Long, val selected: Boolean = true)
+
+/** Torrent options from Settings (speed limits in KB/s, 0 = no limit). */
+data class TorrentSettings(
+    val maxActive: Int = AppSettings.DEFAULT_TORRENTS,
+    val downKb: Int = 0,
+    val upKb: Int = 0,
+    val dht: Boolean = true,
+    val seeding: Boolean = false,
+    val seedRatioX10: Int = 20,
+    val seedHours: Int = 4
+)
+
+/** Live numbers of a finished torrent that is still being shared. */
+data class SeedStats(val uploadSpeed: Long, val uploaded: Long, val ratio: Float, val peers: Int)
 
 /** What a .torrent file contains, read without starting anything. */
 data class TorrentMeta(val hash: String, val name: String)
@@ -78,6 +97,13 @@ class TorrentEngine(
         @Volatile var done = 0L
         @Volatile var total = -1L
         @Volatile var finishJob: Job? = null
+        @Volatile var queued = false       // paused by us because the "Active torrents" limit is reached
+    }
+
+    /** A finished torrent that keeps sharing (its files stay in the work folder until seeding stops). */
+    private class Seeder(val id: Long, val hash: Sha1Hash, val name: String, val total: Long) {
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        @Volatile var netPaused = false
     }
 
     private val appContext = context.applicationContext
@@ -86,6 +112,8 @@ class TorrentEngine(
     @Volatile private var sessionRef: SessionManager? = null
 
     private val entries = ConcurrentHashMap<Long, Entry>()
+    private val seeders = ConcurrentHashMap<Long, Seeder>()
+    @Volatile private var config = TorrentSettings()
     private val wifiOnly = MutableStateFlow(false)
     @Volatile private var saveFolder = "" // picked folder (tree URI), blank = Downloads
 
@@ -104,6 +132,14 @@ class TorrentEngine(
     /** Emits the id of a multi-file torrent that is waiting for the user to choose its files. */
     val selectionRequests: SharedFlow<Long> = _selection.asSharedFlow()
 
+    private val _seeding = MutableStateFlow<Map<Long, SeedStats>>(emptyMap())
+
+    /** Finished torrents that are being shared right now (id -> live numbers). */
+    val seeding: StateFlow<Map<Long, SeedStats>> = _seeding
+
+    /** How many torrents are being shared (keeps the background service alive). */
+    val seedingCount: Flow<Int> = _seeding.map { it.size }.distinctUntilChanged()
+
     init {
         scope.launch {
             while (isActive) {
@@ -121,6 +157,52 @@ class TorrentEngine(
 
     fun setSaveFolder(folderUri: String) {
         saveFolder = folderUri
+    }
+
+    /** Applies the torrent options of Settings. Speed limit and DHT are applied to the session at once. */
+    fun configure(settings: TorrentSettings) {
+        config = settings
+        scope.launch { runCatching { sessionRef?.let { applySessionSettings(it, settings) } } }
+    }
+
+    private fun applySessionSettings(sm: SessionManager, c: TorrentSettings) {
+        val pack = SettingsPack()
+        pack.downloadRateLimit(c.downKb * 1024)
+        pack.uploadRateLimit(c.upKb * 1024)
+        pack.enableDht(c.dht)
+        sm.applySettings(pack)
+    }
+
+    /** Stops sharing one finished torrent and frees its work folder. */
+    fun stopSeeding(id: Long) {
+        val s = seeders[id] ?: return
+        endSeeding(s)
+    }
+
+    fun stopAllSeeding() {
+        seeders.values.forEach { endSeeding(it) }
+    }
+
+    /** Removes what is left of a finished torrent from an earlier app run (the app was closed while it was seeding). */
+    fun cleanupLeftovers(id: Long, infoHash: String?) {
+        if (seeders.containsKey(id) || entries.containsKey(id)) return
+        runCatching { workDir(id).deleteRecursively() }
+        infoHash?.let { runCatching { sourceFile(it).delete() } }
+    }
+
+    private fun endSeeding(s: Seeder) {
+        if (seeders.remove(s.id, s)) {
+            _seeding.update { it - s.id }
+            scope.launch {
+                runCatching {
+                    val handle = sessionRef?.find(s.hash)
+                    if (handle != null && handle.isValid()) sessionRef?.remove(handle)
+                }
+                delay(500) // let libtorrent let go of the files
+                runCatching { workDir(s.id).deleteRecursively() }
+                runCatching { sourceFile(s.hash.toHex()).delete() }
+            }
+        }
     }
 
     /**
@@ -148,6 +230,7 @@ class TorrentEngine(
                 if (entry.finishing) return@launch
                 entry.paused = false
                 entry.netPaused = false
+                entry.queued = false
                 publish(entry, DownloadState.QUEUED)
 
                 val existing = sm.find(hash)
@@ -187,16 +270,19 @@ class TorrentEngine(
     fun cancel(id: Long, infoHash: String? = null) {
         scope.launch {
             val e = entries.remove(id)
+            val seeder = seeders.remove(id)
+            if (seeder != null) _seeding.update { it - id }
             e?.finishJob?.cancel()
             runCatching {
                 val sm = sessionRef
-                val handle = e?.let { sm?.find(it.hash) }
+                val hash = e?.hash ?: seeder?.hash
+                val handle = hash?.let { sm?.find(it) }
                 if (sm != null && handle != null && handle.isValid()) sm.remove(handle, SessionHandle.DELETE_FILES)
             }
             delay(300) // let libtorrent let go of the files
             workDir(id).deleteRecursively()
-            (infoHash ?: e?.hash?.toHex())?.let { sourceFile(it).delete() }
-            _updates.tryEmit(DownloadUpdate(id, DownloadState.CANCELED, e?.name.orEmpty(), 0L, -1L))
+            (infoHash ?: e?.hash?.toHex() ?: seeder?.hash?.toHex())?.let { sourceFile(it).delete() }
+            _updates.tryEmit(DownloadUpdate(id, DownloadState.CANCELED, e?.name ?: seeder?.name.orEmpty(), 0L, -1L))
         }
     }
 
@@ -220,11 +306,13 @@ class TorrentEngine(
 
     /** The files of a torrent that is known to the engine (null while its info has not arrived). */
     fun files(id: Long): List<TorrentFileInfo>? {
-        val e = entries[id] ?: return null
-        val handle = sessionRef?.find(e.hash)?.takeIf { it.isValid() } ?: return null
+        val e = entries[id]
+        val hash = e?.hash ?: seeders[id]?.hash ?: return null
+        val skipped = e?.skipped ?: loadSkipped(id).orEmpty()
+        val handle = sessionRef?.find(hash)?.takeIf { it.isValid() } ?: return null
         val info = handle.torrentFile() ?: return null
         val fs = info.files()
-        return (0 until info.numFiles()).map { TorrentFileInfo(it, fs.filePath(it), fs.fileSize(it)) }
+        return (0 until info.numFiles()).map { TorrentFileInfo(it, fs.filePath(it), fs.fileSize(it), it !in skipped) }
     }
 
     /** Applies the user's choice ([selected] = indexes to download) and starts the torrent. */
@@ -269,9 +357,12 @@ class TorrentEngine(
 
     private fun tick() {
         val sm = sessionRef ?: return
-        if (entries.isEmpty()) return
         val ok = allowed.value
-        for (e in entries.values) {
+        tickSeeders(sm, ok)
+        if (entries.isEmpty()) return
+        val maxActive = config.maxActive.coerceAtLeast(1)
+        var slots = 0 // torrents that may run now; the oldest ones come first, the rest wait in the queue
+        for (e in entries.values.sortedBy { it.id }) {
             if (e.finishing || e.paused) continue
             try {
                 val handle = sm.find(e.hash)
@@ -298,6 +389,21 @@ class TorrentEngine(
                 if (e.netPaused) {
                     handle.resume()
                     e.netPaused = false
+                }
+
+                // "Active torrents" limit: only this many run, the others wait (and start by themselves later)
+                if (slots >= maxActive) {
+                    if (!e.queued) {
+                        handle.pause()
+                        e.queued = true
+                        publish(e, DownloadState.QUEUED)
+                    }
+                    continue
+                }
+                slots++
+                if (e.queued) {
+                    handle.resume()
+                    e.queued = false
                 }
 
                 val info = handle.torrentFile() // null until the torrent info (metadata) has arrived
@@ -342,6 +448,49 @@ class TorrentEngine(
         }
     }
 
+    /** Seeding: stop when the ratio or time limit is reached (or seeding was switched off), pause without network. */
+    private fun tickSeeders(sm: SessionManager, networkOk: Boolean) {
+        if (seeders.isEmpty()) return
+        val c = config
+        val now = android.os.SystemClock.elapsedRealtime()
+        val stats = HashMap<Long, SeedStats>()
+        for (s in seeders.values) {
+            try {
+                val handle = sm.find(s.hash)
+                if (handle == null || !handle.isValid()) {
+                    endSeeding(s)
+                    continue
+                }
+                val st = handle.status()
+                val uploaded = st.allTimeUpload()
+                val ratio = if (s.total > 0) uploaded.toFloat() / s.total else 0f
+                val timeUp = now - s.startedAt >= c.seedHours * 3_600_000L
+                if (!c.seeding || ratio >= c.seedRatioX10 / 10f || timeUp) {
+                    endSeeding(s)
+                    continue
+                }
+                if (!networkOk) {
+                    if (!s.netPaused) {
+                        handle.pause()
+                        s.netPaused = true
+                    }
+                    stats[s.id] = SeedStats(0L, uploaded, ratio, 0)
+                    continue
+                }
+                if (s.netPaused) {
+                    handle.resume()
+                    s.netPaused = false
+                }
+                stats[s.id] = SeedStats(st.uploadRate().toLong(), uploaded, ratio, st.numPeers())
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                // keep sharing, try again on the next tick
+                stats[s.id] = _seeding.value[s.id] ?: SeedStats(0L, 0L, 0f, 0)
+            }
+        }
+        _seeding.value = stats.filterKeys { seeders.containsKey(it) }
+    }
+
     /* ------------------------ finish: copy to folder ------------------------ */
 
     private fun beginFinish(
@@ -357,16 +506,25 @@ class TorrentEngine(
         e.total = files.sumOf { it.second }
         e.done = e.total
 
+        val seed = config.seeding
         e.finishJob = scope.launch {
             try {
-                // Stop the torrent (no seeding for now); the files stay on disk for the copy below.
-                runCatching { sm.remove(handle) }
-                delay(500)
+                if (!seed) {
+                    // No seeding: stop the torrent; the files stay on disk for the copy below.
+                    runCatching { sm.remove(handle) }
+                    delay(500)
+                }
                 publishSaving(e, 0)
-                val mainUri = saveAll(e, files)
-                workDir(e.id).deleteRecursively()
-                sourceFile(e.hash.toHex()).delete()
+                val saved = saveAll(e, files)
                 entries.remove(e.id)
+                if (seed) {
+                    // Keep sharing from the work folder; it is deleted when seeding stops.
+                    seeders[e.id] = Seeder(e.id, e.hash, e.name, e.total)
+                    _seeding.update { it + (e.id to SeedStats(0L, 0L, 0f, 0)) }
+                } else {
+                    workDir(e.id).deleteRecursively()
+                    sourceFile(e.hash.toHex()).delete()
+                }
                 _updates.tryEmit(
                     DownloadUpdate(
                         id = e.id,
@@ -374,7 +532,8 @@ class TorrentEngine(
                         fileName = e.name,
                         downloadedBytes = e.total,
                         totalBytes = e.total,
-                        savedUri = mainUri
+                        savedUri = saved.mainUri,
+                        folderRef = saved.folderRef
                     )
                 )
             } catch (t: Throwable) {
@@ -386,9 +545,17 @@ class TorrentEngine(
         }
     }
 
-    /** Copies every file of the torrent to the chosen folder. @return uri of the biggest file (the main one). */
-    private suspend fun saveAll(e: Entry, files: List<Pair<String, Long>>): String {
+    /** Result of saving: the biggest file, and the torrent's own folder when it has several files. */
+    private class Saved(val mainUri: String, val folderRef: String?)
+
+    /** Name of the folder that holds a multi-file torrent (all its paths start with it), null for a single file. */
+    private fun topFolder(files: List<Pair<String, Long>>): String? =
+        files.map { it.first }.firstOrNull { it.contains('/') }?.substringBefore('/')?.takeIf { it.isNotBlank() }
+
+    /** Copies every file of the torrent to the chosen folder. Returns the main file and the folder (if any). */
+    private suspend fun saveAll(e: Entry, files: List<Pair<String, Long>>): Saved {
         val total = files.sumOf { it.second }
+        val top = topFolder(files)
         val folder = saveFolder
         val work = workDir(e.id)
         if (SaveLocation.isOnPhoneStorage(folder) && work.usableSpace < total + MIN_FREE_SPACE) {
@@ -399,7 +566,8 @@ class TorrentEngine(
         if (folder.isNotBlank()) {
             val writer = TreeWriter(folder)
             try {
-                return copyFiles(e, files, work, progress) { rel -> writer.open(rel) }
+                val main = copyFiles(e, files, work, progress) { rel -> writer.open(rel) }
+                return Saved(main, top?.let { writer.folderRef(it) })
             } catch (c: CancellationException) {
                 writer.rollback()
                 throw c
@@ -413,7 +581,8 @@ class TorrentEngine(
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val writer = MediaStoreWriter()
             try {
-                copyFiles(e, files, work, progress) { rel -> writer.open(rel) }
+                val main = copyFiles(e, files, work, progress) { rel -> writer.open(rel) }
+                Saved(main, top?.let { writer.folderRef(it) })
             } catch (t: Throwable) {
                 writer.rollback()
                 throw t
@@ -421,7 +590,9 @@ class TorrentEngine(
         } else {
             val writer = LegacyFileWriter()
             try {
-                copyFiles(e, files, work, progress) { rel -> writer.open(rel) }.also { writer.scan() }
+                val main = copyFiles(e, files, work, progress) { rel -> writer.open(rel) }
+                writer.scan()
+                Saved(main, top?.let { writer.folderRef(it) })
             } catch (t: Throwable) {
                 writer.rollback()
                 throw t
@@ -513,6 +684,9 @@ class TorrentEngine(
             return out to doc.toString()
         }
 
+        /** Document uri of the torrent's folder inside the picked folder. */
+        fun folderRef(top: String): String? = dirs[top]?.toString()
+
         fun rollback() {
             created.asReversed().forEach { runCatching { DocumentsContract.deleteDocument(resolver, it) } }
         }
@@ -541,6 +715,9 @@ class TorrentEngine(
             val out = resolver.openOutputStream(uri) ?: throw IOException("Could not open the file for writing")
             return out to uri.toString()
         }
+
+        /** "ms:<folder>" = a folder inside the public Downloads (found again through MediaStore). */
+        fun folderRef(top: String): String = FOLDER_MEDIASTORE + top
 
         fun rollback() {
             created.forEach { runCatching { resolver.delete(it, null, null) } }
@@ -575,6 +752,9 @@ class TorrentEngine(
             return target.outputStream() to Uri.fromFile(target).toString()
         }
 
+        /** "file:<path>" = a plain folder (Android 9 and below). */
+        fun folderRef(top: String): String = FOLDER_FILE + File(base, top).absolutePath
+
         fun scan() {
             MediaScannerConnection.scanFile(appContext, created.map { it.absolutePath }.toTypedArray(), null, null)
         }
@@ -589,6 +769,7 @@ class TorrentEngine(
     private fun session(): SessionManager = synchronized(lock) {
         sessionRef ?: SessionManager().also {
             it.start()
+            runCatching { applySessionSettings(it, config) }
             sessionRef = it
         }
     }
@@ -657,6 +838,10 @@ class TorrentEngine(
 
         /** Shown on a paused multi-file torrent until the user has chosen its files. */
         const val CHOOSE_FILES = "Choose files"
+
+        /** Prefixes of the folder reference stored for a multi-file torrent (a picked folder is a plain content uri). */
+        const val FOLDER_MEDIASTORE = "ms:"
+        const val FOLDER_FILE = "file:"
         private const val COPY_BUFFER = 1024 * 1024
         private const val MIN_FREE_SPACE = 5L * 1024 * 1024
 

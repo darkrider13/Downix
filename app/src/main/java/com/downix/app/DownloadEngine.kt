@@ -78,7 +78,8 @@ data class DownloadUpdate(
     val error: String? = null,         // set when FAILED
     val savingPercent: Int = -1,       // 0..100 while the finished file is being saved, else -1
     val peers: Int = 0,                // torrents only: connected peers
-    val seeds: Int = 0                 // torrents only: connected seeds
+    val seeds: Int = 0,                // torrents only: connected seeds
+    val folderRef: String? = null      // torrents only, set when COMPLETED: folder of a multi-file torrent
 ) {
     val hasKnownSize: Boolean get() = totalBytes > 0
     val progress: Float
