@@ -173,7 +173,7 @@ class TorrentEngine(
         val pack = SettingsPack()
         pack.downloadRateLimit(c.downKb * 1024)
         pack.uploadRateLimit(c.upKb * 1024)
-        pack.enableDht(c.dht)
+        pack.setEnableDht(c.dht)
         sm.applySettings(pack)
     }
 
@@ -251,7 +251,7 @@ class TorrentEngine(
                 // A magnet link, or "torrent-file:<hash>" = a .torrent file that was stored when it was added.
                 val fileInfo: TorrentInfo? =
                     if (clean.startsWith(FILE_PREFIX)) TorrentInfo(sourceFile(clean.removePrefix(FILE_PREFIX))) else null
-                val hash = fileInfo?.infoHash() ?: AddTorrentParams.parseMagnetUri(clean).infoHash()
+                val hash = fileInfo?.infoHash() ?: magnetHash(clean)
                 val entry = entries.getOrPut(id) {
                     Entry(
                         id, clean, hash,
@@ -593,7 +593,7 @@ class TorrentEngine(
                         val file = sourceFile(e.hash.toHex())
                         if (!file.exists()) {
                             file.parentFile?.mkdirs()
-                            file.writeBytes(info.bencode())
+                            file.writeBytes(info.toEntry().bencode())
                         }
                     }
                     // Keep sharing from the work folder; it is deleted when seeding stops.
@@ -960,6 +960,28 @@ class TorrentEngine(
         /** Finds a magnet link inside any copied / shared text. */
         fun extractMagnet(text: String?): String? =
             text?.let { MAGNET.find(it)?.value }?.let { normalizeMagnet(it) }
+
+        /** Info hash of a magnet link as a Sha1Hash (accepts 40-char hex and 32-char base32 forms). */
+        fun magnetHash(magnet: String): Sha1Hash {
+            val raw = BTIH.find(magnet)?.groupValues?.get(1)
+                ?: throw IllegalArgumentException("No info hash in magnet link")
+            if (raw.length == 40) return Sha1Hash(raw.lowercase())
+            val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+            var bits = 0
+            var value = 0
+            val out = java.io.ByteArrayOutputStream()
+            for (ch in raw.uppercase()) {
+                val idx = alphabet.indexOf(ch)
+                require(idx >= 0) { "Bad base32 info hash" }
+                value = (value shl 5) or idx
+                bits += 5
+                if (bits >= 8) {
+                    out.write((value shr (bits - 8)) and 0xFF)
+                    bits -= 8
+                }
+            }
+            return Sha1Hash(out.toByteArray())
+        }
 
         /** Info hash as written in the link (hex in lower case), used to spot duplicates. */
         fun infoHashOf(magnet: String): String? {
