@@ -1,5 +1,7 @@
 package com.downix.app
 
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import android.content.ClipData
 import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
@@ -341,36 +343,77 @@ internal fun DetailsDialog(
         }
         Spacer(Modifier.height(10.dp))
         SettingDivider()
-        if (item.isTorrent) {
-            DetailRow("Type", if (item.url.startsWith(TorrentEngine.FILE_PREFIX)) "Torrent (.torrent file)" else "Torrent (magnet link)")
-            SettingDivider()
-            if (!item.url.startsWith(TorrentEngine.FILE_PREFIX)) {
-                DetailRow("Link", item.url, maxLines = 4)
-                SettingDivider()
+
+        // The popup keeps one fixed size: the tabs and the buttons stay in place, only the middle part scrolls.
+        val files by produceState<List<TorrentFileInfo>?>(null, item.id, item.state, item.seeding != null) {
+            value = if (item.isTorrent) loadFiles() else null
+        }
+        val fileList = files?.takeIf { it.size > 1 }
+        val tabs = buildList {
+            add("Overview")
+            if (item.isTorrent) {
+                if (fileList != null) add("Files")
+                add("Info")
             }
-        } else {
-            DetailRow("Link", item.url, maxLines = 4)
-            SettingDivider()
         }
-        DetailRow("Size", detailSize(item))
-        SettingDivider()
-        DetailRow("Added", dateText(item.createdAt))
-        SettingDivider()
-        Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
-            Text("Status", color = Downix.colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        var tab by remember { mutableStateOf(0) }
+        val tabIndex = tab.coerceIn(0, tabs.lastIndex)
+        if (tabs.size > 1) {
+            Spacer(Modifier.height(10.dp))
+            DetailTabs(tabs, tabIndex) { tab = it }
             Spacer(Modifier.height(4.dp))
-            StatusLine(item)
         }
-        if (item.isTorrent) TorrentDetailRows(item, loadFiles)
-        SettingDivider()
-        DetailRow(
-            "Saved to",
-            if (item.isCompleted) "${SaveLocation.savedFolderLabel(item.savedUri)} / ${item.fileName}"
-            else "Your download folder, when the download is finished"
-        )
-        if (item.state == DownloadState.FAILED && !item.error.isNullOrBlank()) {
-            SettingDivider()
-            DetailRow("Error", item.error)
+        val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+        val bodyHeight = (screenH * 0.40f).dp.coerceIn(220.dp, 380.dp)
+        androidx.compose.runtime.key(tabs[tabIndex]) {
+            var drag by remember { mutableStateOf(0f) }
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .height(bodyHeight)
+                    // swipe left / right to go to the next / previous tab
+                    .pointerInput(tabs.size, tabIndex) {
+                        detectHorizontalDragGestures(
+                            onDragStart = { drag = 0f },
+                            onDragEnd = {
+                                if (drag < -90f && tabIndex < tabs.lastIndex) tab = tabIndex + 1
+                                else if (drag > 90f && tabIndex > 0) tab = tabIndex - 1
+                            },
+                            onHorizontalDrag = { _, delta -> drag += delta }
+                        )
+                    }
+                    .verticalScroll(rememberScrollState())
+            ) {
+                when (tabs[tabIndex]) {
+                    "Files" -> fileList?.let { TorrentFileRows(it) }
+                    "Info" -> TorrentInfoRows(item)
+                    else -> {
+                        if (!item.isTorrent || !item.url.startsWith(TorrentEngine.FILE_PREFIX)) {
+                            DetailRow("Link", item.url, maxLines = 4)
+                            SettingDivider()
+                        }
+                        DetailRow("Size", detailSize(item))
+                        SettingDivider()
+                        DetailRow("Added", dateText(item.createdAt))
+                        SettingDivider()
+                        Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
+                            Text("Status", color = Downix.colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Spacer(Modifier.height(4.dp))
+                            StatusLine(item)
+                        }
+                        SettingDivider()
+                        DetailRow(
+                            "Saved to",
+                            if (item.isCompleted) "${SaveLocation.savedFolderLabel(item.savedUri)} / ${item.fileName}"
+                            else "Your download folder, when the download is finished"
+                        )
+                        if (item.state == DownloadState.FAILED && !item.error.isNullOrBlank()) {
+                            SettingDivider()
+                            DetailRow("Error", item.error)
+                        }
+                    }
+                }
+            }
         }
 
         Spacer(Modifier.height(14.dp))
@@ -394,10 +437,38 @@ internal fun DetailsDialog(
     }
 }
 
-/** Extra rows for a torrent: hash, peers and seeds, sharing numbers and the list of files. */
+/** Tab buttons of the Details popup. */
 @Composable
-private fun TorrentDetailRows(item: DownloadItem, loadFiles: suspend () -> List<TorrentFileInfo>?) {
+private fun DetailTabs(tabs: List<String>, selected: Int, onSelect: (Int) -> Unit) {
     val c = Downix.colors
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        tabs.forEachIndexed { i, label ->
+            val on = i == selected
+            val shape = RoundedCornerShape(10.dp)
+            Box(
+                Modifier
+                    .weight(1f)
+                    .clip(shape)
+                    .then(if (on) Modifier.glass(shape) else Modifier)
+                    .clickable { onSelect(i) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    label,
+                    color = if (on) c.text else c.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+/** Torrent tab "Info": type, hash, peers and seeds, sharing numbers. */
+@Composable
+private fun TorrentInfoRows(item: DownloadItem) {
+    DetailRow("Type", if (item.url.startsWith(TorrentEngine.FILE_PREFIX)) "Torrent (.torrent file)" else "Torrent (magnet link)")
     item.infoHash?.takeIf { it.isNotBlank() }?.let {
         SettingDivider()
         DetailRow("Info hash", it, maxLines = 2)
@@ -414,46 +485,35 @@ private fun TorrentDetailRows(item: DownloadItem, loadFiles: suspend () -> List<
             "$text\nRatio ${"%.2f".format(seed.ratio)}, ${formatBytes(seed.uploaded)} shared, ${seed.peers} peers"
         )
     }
-    // The file list comes from the torrent engine, so it is only there while the torrent is running or shared.
-    val files by produceState<List<TorrentFileInfo>?>(null, item.id, item.state, item.seeding != null) { value = loadFiles() }
-    val list = files
-    if (list != null && list.size > 1) {
-        SettingDivider()
-        Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
+}
+
+/** Torrent tab "Files": the whole list; the tab itself scrolls. */
+@Composable
+private fun TorrentFileRows(list: List<TorrentFileInfo>) {
+    val c = Downix.colors
+    Text(
+        "Files (${list.count { it.selected }} of ${list.size} selected)",
+        color = c.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+        modifier = Modifier.padding(vertical = 9.dp)
+    )
+    list.forEach { file ->
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                "Files (${list.count { it.selected }} of ${list.size} selected)",
-                color = c.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium
+                file.path.substringAfterLast('/'),
+                color = if (file.selected) c.text else c.textSecondary,
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
-            Spacer(Modifier.height(6.dp))
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 180.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .glass(RoundedCornerShape(12.dp))
-                    .verticalScroll(rememberScrollState())
-            ) {
-                list.forEach { file ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            file.path.substringAfterLast('/'),
-                            color = if (file.selected) c.text else c.textSecondary,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            if (file.selected) formatBytes(file.size) else "Skipped",
-                            color = c.textSecondary, fontSize = 11.sp
-                        )
-                    }
-                }
-            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (file.selected) formatBytes(file.size) else "Skipped",
+                color = c.textSecondary, fontSize = 11.sp
+            )
         }
     }
 }

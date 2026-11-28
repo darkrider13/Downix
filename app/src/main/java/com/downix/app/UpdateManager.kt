@@ -182,22 +182,24 @@ class UpdateManager private constructor(context: Context) {
             if (!response.isSuccessful) throw UpdateException("Update server problem (${response.code})")
             response.body?.string().orEmpty()
         }
-        val path = Regex("href=\"(/[^\"]+/releases/download/[^\"]+\\.apk)\"", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)?.replace("&amp;", "&") ?: return null
+        val paths = Regex("href=\"(/[^\"]+/releases/download/[^\"]+\\.apk)\"", RegexOption.IGNORE_CASE)
+            .findAll(html).map { it.groupValues[1].replace("&amp;", "&") }.distinct().toList()
+        if (paths.isEmpty()) return null
 
+        val assets = org.json.JSONArray()
+        for (path in paths) {
+            assets.put(
+                JSONObject()
+                    .put("name", path.substringAfterLast('/'))
+                    .put("browser_download_url", "https://github.com$path")
+                    .put("size", 0)
+            )
+        }
         return JSONObject()
             .put("tag_name", tag)
             .put("body", "")
             .put("html_url", "https://github.com/$repo/releases/tag/$tag")
-            .put(
-                "assets",
-                org.json.JSONArray().put(
-                    JSONObject()
-                        .put("name", path.substringAfterLast('/'))
-                        .put("browser_download_url", "https://github.com$path")
-                        .put("size", 0)
-                )
-            )
+            .put("assets", assets)
             .toString()
     }
 
@@ -224,13 +226,18 @@ class UpdateManager private constructor(context: Context) {
         var apkUrl = ""
         var apkSize = 0L
         if (assets != null) {
-            for (i in 0 until assets.length()) {
-                val asset = assets.optJSONObject(i) ?: continue
-                if (asset.optString("name").endsWith(".apk", ignoreCase = true)) {
-                    apkUrl = asset.optString("browser_download_url")
-                    apkSize = asset.optLong("size", 0L)
-                    break
-                }
+            // Each release holds one APK per CPU type (Downix-<version>-<abi>.apk): take the one that fits this phone,
+            // trying the phone's CPU types in its own order of preference. Old releases have a single universal APK.
+            val apks = (0 until assets.length())
+                .mapNotNull { assets.optJSONObject(it) }
+                .filter { it.optString("name").endsWith(".apk", ignoreCase = true) }
+            val chosen = Build.SUPPORTED_ABIS.firstNotNullOfOrNull { abi ->
+                apks.firstOrNull { it.optString("name").contains(abi, ignoreCase = true) }
+            } ?: apks.firstOrNull { !Regex("arm64-v8a|armeabi-v7a", RegexOption.IGNORE_CASE).containsMatchIn(it.optString("name")) }
+              ?: apks.firstOrNull()
+            if (chosen != null) {
+                apkUrl = chosen.optString("browser_download_url")
+                apkSize = chosen.optLong("size", 0L)
             }
         }
         val version = release.optString("tag_name").trim().trimStart('v', 'V')
