@@ -1423,7 +1423,10 @@ private fun torrentPeers(item: DownloadItem): String =
 private enum class StatusKind { CONNECTING, RUNNING, SAVING, QUEUED, WAITING, PAUSED, FAILED, COMPLETED, SEEDING, CANCELED }
 
 private fun statusText(kind: StatusKind, item: DownloadItem): String = when (kind) {
-    StatusKind.CONNECTING -> if (item.isTorrent) "Finding peers" else "Connecting"
+    StatusKind.CONNECTING ->
+        if (!item.isTorrent) "Connecting"
+        else if (item.error == TorrentEngine.NO_PEERS) "No peers yet · still searching"
+        else "Finding peers"
     StatusKind.SAVING -> "Saving file · ${maxOf(item.savingPercent, 0)}%"
     StatusKind.RUNNING ->
         if (item.hasKnownSize) "${item.percent}% · ${formatSpeed(item.speedBytesPerSec)}" + torrentPeers(item)

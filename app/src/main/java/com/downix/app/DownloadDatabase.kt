@@ -204,7 +204,7 @@ private fun DownloadEntity.toItem(live: DownloadUpdate?, seed: SeedStats? = null
             state = DownloadState.DOWNLOADING,
             speedBytesPerSec = live.speedBytesPerSec,
             savedUri = savedUri,
-            error = null,
+            error = if (itemKind == DownloadKind.TORRENT) live.error else null, // "No peers found" hint
             createdAt = createdAt,
             savingPercent = live.savingPercent,
             kind = itemKind,
@@ -320,12 +320,16 @@ class DownloadRepository private constructor(context: Context) {
             val torrentsToResume = dao.getActiveTorrentIds() // read BEFORE they are marked as paused
             dao.resetInterrupted()
             // Torrents that finished while seeding and were cut off by an app close: free their work folder.
-            dao.getCompletedTorrents().forEach { torrents.cleanupLeftovers(it.id, it.infoHash) }
+            // With seeding on, they are shared again; otherwise the work folder is deleted.
+            var restored = false
+            dao.getCompletedTorrents().forEach {
+                if (torrents.restoreOrCleanup(it.id, it.infoHash, it.fileName, maxOf(it.totalBytes, it.downloadedBytes))) restored = true
+            }
             // Auto-resume: torrents that were running when the app closed continue by themselves.
             torrentsToResume.forEach { id ->
                 dao.getById(id)?.let { torrents.start(it.id, it.url, it.fileName.ifBlank { null }) }
             }
-            if (torrentsToResume.isNotEmpty()) DownloadService.start(appContext)
+            if (torrentsToResume.isNotEmpty() || restored) DownloadService.start(appContext)
         }
     }
 
@@ -452,6 +456,7 @@ class DownloadRepository private constructor(context: Context) {
     /** Removes an item from the list (stops it first if needed). A finished file stays on the phone. */
     suspend fun remove(id: Long) {
         stopAndClean(id)
+        runCatching { TorrentEngine.savedList(appContext, id).delete() }
         dao.deleteById(id)
     }
 
@@ -479,7 +484,7 @@ class DownloadRepository private constructor(context: Context) {
         }
         val folder = row.folderRef
         val result = withContext(Dispatchers.IO) {
-            if (row.kind == DownloadKind.TORRENT.name && !folder.isNullOrBlank()) deleteSavedFolder(folder)
+            if (row.kind == DownloadKind.TORRENT.name && !folder.isNullOrBlank()) deleteSavedFolder(folder, id)
             else deleteSavedFile(saved)
         }
         if (result != FileDeleteResult.FAILED) {
@@ -491,12 +496,17 @@ class DownloadRepository private constructor(context: Context) {
     }
 
     /** Deletes the whole folder of a multi-file torrent (see TorrentEngine.FOLDER_*). */
-    private fun deleteSavedFolder(ref: String): FileDeleteResult = try {
+    private fun deleteSavedFolder(ref: String, id: Long): FileDeleteResult = try {
         when {
             ref.startsWith(TorrentEngine.FOLDER_MEDIASTORE) -> {
                 val name = ref.removePrefix(TorrentEngine.FOLDER_MEDIASTORE)
                 val path = android.os.Environment.DIRECTORY_DOWNLOADS + "/" + name
-                val removed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Best: delete exactly the files this torrent saved (another torrent may share the folder name)
+                val listFile = TorrentEngine.savedList(appContext, id)
+                val uris = listFile.takeIf { it.exists() }?.readLines()?.filter { it.isNotBlank() }
+                val removed = if (uris != null) {
+                    uris.count { runCatching { appContext.contentResolver.delete(Uri.parse(it), null, null) > 0 }.getOrDefault(false) }
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val column = android.provider.MediaStore.MediaColumns.RELATIVE_PATH
                     appContext.contentResolver.delete(
                         android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
@@ -504,10 +514,11 @@ class DownloadRepository private constructor(context: Context) {
                         arrayOf("$path/", "$path/%")
                     )
                 } else 0
-                // MediaStore removes the files; the empty folder is removed too when Android allows it
+                runCatching { listFile.delete() }
+                // MediaStore removes the files; the folder is removed only if it is empty and Android allows it
                 runCatching {
                     File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), name)
-                        .deleteRecursively()
+                        .delete()
                 }
                 if (removed > 0) FileDeleteResult.DELETED else FileDeleteResult.ALREADY_GONE
             }
