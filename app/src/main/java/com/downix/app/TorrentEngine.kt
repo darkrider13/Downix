@@ -491,7 +491,8 @@ class TorrentEngine(
                     speed = speed,
                     error = if (noPeers) NO_PEERS else null,
                     peers = st.numPeers(),
-                    seeds = st.numSeeds()
+                    seeds = st.numSeeds(),
+                    peerTotal = swarmSize(st)
                 )
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
@@ -859,13 +860,24 @@ class TorrentEngine(
         return File(base, "torrents/$id")
     }
 
+    /** Peers known in the swarm: connected + waiting in the list, or the tracker's numbers, whichever is bigger. */
+    private fun swarmSize(st: Any): Int {
+        fun num(name: String): Int = runCatching { (st.javaClass.getMethod(name).invoke(st) as Number).toInt() }
+            .getOrDefault(0).coerceAtLeast(0)
+        val connected = num("numPeers")
+        val listed = num("listPeers") + num("listSeeds")
+        val tracker = num("numComplete") + num("numIncomplete")
+        return maxOf(connected, listed, tracker)
+    }
+
     private fun publish(
         e: Entry,
         state: DownloadState,
         speed: Long = 0L,
         error: String? = null,
         peers: Int = 0,
-        seeds: Int = 0
+        seeds: Int = 0,
+        peerTotal: Int = 0
     ) {
         _updates.tryEmit(
             DownloadUpdate(
@@ -877,7 +889,8 @@ class TorrentEngine(
                 speedBytesPerSec = speed,
                 error = error,
                 peers = peers,
-                seeds = seeds
+                seeds = seeds,
+                peerTotal = peerTotal
             )
         )
     }

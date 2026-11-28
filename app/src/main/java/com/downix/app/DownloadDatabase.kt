@@ -169,6 +169,7 @@ data class DownloadItem(
     val kind: DownloadKind = DownloadKind.HTTP,
     val peers: Int = 0,          // torrents: connected peers (live only)
     val seeds: Int = 0,          // torrents: connected seeds (live only)
+    val peerTotal: Int = 0,      // torrents: peers known in the swarm (live only)
     val infoHash: String? = null,   // torrents: the hash that identifies the torrent
     val folderRef: String? = null,  // multi-file torrents: their folder
     val seeding: SeedStats? = null  // finished torrent that is still being shared (live only)
@@ -210,6 +211,7 @@ private fun DownloadEntity.toItem(live: DownloadUpdate?, seed: SeedStats? = null
             kind = itemKind,
             peers = live.peers,
             seeds = live.seeds,
+            peerTotal = live.peerTotal,
             infoHash = infoHash,
             folderRef = folderRef,
             seeding = seed

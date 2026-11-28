@@ -1415,9 +1415,12 @@ internal fun sizeLabel(item: DownloadItem): String = when {
     else -> formatBytes(item.downloadedBytes)
 }
 
-/** Torrents show how many peers (and seeds) they are connected to: " · 12 peers". */
-private fun torrentPeers(item: DownloadItem): String =
-    if (item.isTorrent && item.peers > 0) " · ${item.peers} peers" else ""
+/** Torrents show "connected/known" peers: " · 7/749" (just " · 7" while the swarm size is not known). */
+private fun torrentPeers(item: DownloadItem): String = when {
+    !item.isTorrent || item.peers <= 0 -> ""
+    item.peerTotal > item.peers -> " · ${item.peers}/${item.peerTotal}"
+    else -> " · ${item.peers}/${item.peers}"
+}
 
 /** Which line the status text shows. Only a change of kind is animated, never the live numbers inside a kind. */
 private enum class StatusKind { CONNECTING, RUNNING, SAVING, QUEUED, WAITING, PAUSED, FAILED, COMPLETED, SEEDING, CANCELED }

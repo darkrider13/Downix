@@ -1,5 +1,7 @@
 package com.downix.app
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import android.content.ClipData
@@ -367,7 +369,7 @@ internal fun DetailsDialog(
         val bodyHeight = (screenH * 0.40f).dp.coerceIn(220.dp, 380.dp)
         androidx.compose.runtime.key(tabs[tabIndex]) {
             var drag by remember { mutableStateOf(0f) }
-            Column(
+            Box(
                 Modifier
                     .fillMaxWidth()
                     .height(bodyHeight)
@@ -382,34 +384,37 @@ internal fun DetailsDialog(
                             onHorizontalDrag = { _, delta -> drag += delta }
                         )
                     }
-                    .verticalScroll(rememberScrollState())
             ) {
                 when (tabs[tabIndex]) {
-                    "Files" -> fileList?.let { TorrentFileRows(it) }
-                    "Info" -> TorrentInfoRows(item)
-                    else -> {
-                        if (!item.isTorrent || !item.url.startsWith(TorrentEngine.FILE_PREFIX)) {
-                            DetailRow("Link", item.url, maxLines = 4)
+                    // Same scrolling feel as the download cards: a lazy list whose rows fade and shrink at the edges.
+                    "Files" -> fileList?.let { TorrentFileList(it) }
+                    else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        if (tabs[tabIndex] == "Info") {
+                            TorrentInfoRows(item)
+                        } else {
+                            if (!item.isTorrent || !item.url.startsWith(TorrentEngine.FILE_PREFIX)) {
+                                DetailRow("Link", item.url, maxLines = 4)
+                                SettingDivider()
+                            }
+                            DetailRow("Size", detailSize(item))
                             SettingDivider()
-                        }
-                        DetailRow("Size", detailSize(item))
-                        SettingDivider()
-                        DetailRow("Added", dateText(item.createdAt))
-                        SettingDivider()
-                        Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
-                            Text("Status", color = Downix.colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                            Spacer(Modifier.height(4.dp))
-                            StatusLine(item)
-                        }
-                        SettingDivider()
-                        DetailRow(
-                            "Saved to",
-                            if (item.isCompleted) "${SaveLocation.savedFolderLabel(item.savedUri)} / ${item.fileName}"
-                            else "Your download folder, when the download is finished"
-                        )
-                        if (item.state == DownloadState.FAILED && !item.error.isNullOrBlank()) {
+                            DetailRow("Added", dateText(item.createdAt))
                             SettingDivider()
-                            DetailRow("Error", item.error)
+                            Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
+                                Text("Status", color = Downix.colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Spacer(Modifier.height(4.dp))
+                                StatusLine(item)
+                            }
+                            SettingDivider()
+                            DetailRow(
+                                "Saved to",
+                                if (item.isCompleted) "${SaveLocation.savedFolderLabel(item.savedUri)} / ${item.fileName}"
+                                else "Your download folder, when the download is finished"
+                            )
+                            if (item.state == DownloadState.FAILED && !item.error.isNullOrBlank()) {
+                                SettingDivider()
+                                DetailRow("Error", item.error)
+                            }
                         }
                     }
                 }
@@ -475,7 +480,10 @@ private fun TorrentInfoRows(item: DownloadItem) {
     }
     if (item.state == DownloadState.DOWNLOADING && item.savingPercent < 0) {
         SettingDivider()
-        DetailRow("Connections", "${item.peers} peers, ${item.seeds} seeds")
+        DetailRow(
+            "Connections",
+            (if (item.peerTotal > item.peers) "${item.peers} of ${item.peerTotal} peers" else "${item.peers} peers") + ", ${item.seeds} seeds"
+        )
     }
     item.seeding?.let { seed ->
         SettingDivider()
@@ -487,33 +495,45 @@ private fun TorrentInfoRows(item: DownloadItem) {
     }
 }
 
-/** Torrent tab "Files": the whole list; the tab itself scrolls. */
+/** Torrent tab "Files": a lazy list (like the download cards) whose rows fade and shrink at the top and bottom edge. */
 @Composable
-private fun TorrentFileRows(list: List<TorrentFileInfo>) {
+private fun TorrentFileList(list: List<TorrentFileInfo>) {
     val c = Downix.colors
-    Text(
-        "Files (${list.count { it.selected }} of ${list.size} selected)",
-        color = c.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium,
-        modifier = Modifier.padding(vertical = 9.dp)
-    )
-    list.forEach { file ->
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    Column(Modifier.fillMaxSize()) {
+        Text(
+            "Files (${list.count { it.selected }} of ${list.size} selected)",
+            color = c.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(top = 9.dp, bottom = 6.dp)
+        )
+        androidx.compose.foundation.lazy.LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            Text(
-                file.path.substringAfterLast('/'),
-                color = if (file.selected) c.text else c.textSecondary,
-                fontSize = 12.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                if (file.selected) formatBytes(file.size) else "Skipped",
-                color = c.textSecondary, fontSize = 11.sp
-            )
+            items(list, key = { it.index }, contentType = { "file" }) { file ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .fadeAtListEdges(listState, file.index)
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        file.path.substringAfterLast('/'),
+                        color = if (file.selected) c.text else c.textSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (file.selected) formatBytes(file.size) else "Skipped",
+                        color = c.textSecondary, fontSize = 11.sp
+                    )
+                }
+            }
         }
     }
 }

@@ -79,6 +79,7 @@ data class DownloadUpdate(
     val savingPercent: Int = -1,       // 0..100 while the finished file is being saved, else -1
     val peers: Int = 0,                // torrents only: connected peers
     val seeds: Int = 0,                // torrents only: connected seeds
+    val peerTotal: Int = 0,            // torrents only: peers known in the swarm (connected + not connected)
     val folderRef: String? = null      // torrents only, set when COMPLETED: folder of a multi-file torrent
 ) {
     val hasKnownSize: Boolean get() = totalBytes > 0
