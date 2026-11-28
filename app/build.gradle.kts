@@ -98,14 +98,14 @@ android {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 
-    // Only arm64-v8a (almost every phone from ~2017) is built: the torrent library is large, so every extra CPU type adds many MB.
-    // Old 32-bit phones (armeabi-v7a) cannot install the app. To bring them back: add the libtorrent4j-android-arm
-    // dependency below AND "armeabi-v7a" here (the in-app updater already picks the APK that fits the phone).
+    // One APK per CPU type instead of one big APK with every CPU's native code (the torrent library is large).
+    // arm64-v8a = almost every phone from ~2017, armeabi-v7a = old 32-bit phones. The in-app updater picks the right one.
+    // To drop 32-bit phones again: remove "armeabi-v7a" here AND the libtorrent4j-android-arm dependency below.
     splits {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a")
+            include("arm64-v8a", "armeabi-v7a")
             isUniversalApk = false
         }
     }
@@ -147,8 +147,9 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
-    // Torrent engine: libtorrent4j (the libtorrent C++ library for Android) + its native code per CPU type (arm64 only: x86_64 and 32-bit arm were removed to save APK size)
+    // Torrent engine: libtorrent4j (the libtorrent C++ library for Android) + its native code per CPU type (arm64 + 32-bit arm; x86_64 was removed to save APK size)
     val libtorrent4j = "2.1.0-35"
     implementation("org.libtorrent4j:libtorrent4j:$libtorrent4j")
     implementation("org.libtorrent4j:libtorrent4j-android-arm64:$libtorrent4j")
+    implementation("org.libtorrent4j:libtorrent4j-android-arm:$libtorrent4j")
 }
