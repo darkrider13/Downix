@@ -346,7 +346,7 @@ internal fun Modifier.glass(
  * or bottom edge. No full-screen offscreen layer and no mask, so scrolling stays smooth. Cards in the middle
  * keep alpha 1 (no extra layer at all). The lookup is read only while drawing, so nothing recomposes.
  */
-internal fun Modifier.fadeAtListEdges(state: LazyListState, key: Any): Modifier = this.graphicsLayer {
+internal fun Modifier.fadeAtListEdges(state: LazyListState, key: Any, reach: Float = 1.3f): Modifier = this.graphicsLayer {
     val info = state.layoutInfo
     val it = info.visibleItemsInfo.firstOrNull { v -> v.key == key }
     if (it == null || it.size <= 0) {
@@ -358,8 +358,8 @@ internal fun Modifier.fadeAtListEdges(state: LazyListState, key: Any): Modifier 
         val top = info.viewportStartOffset.toFloat()
         val bottom = info.viewportEndOffset.toFloat()
         // longer fade distance (1.3 card heights) + smoothstep curve = a deeper, softer fade
-        val leaving = ((it.offset + size - top) / (size * 1.3f)).coerceIn(0f, 1f)
-        val entering = ((bottom - it.offset) / (size * 1.3f)).coerceIn(0f, 1f)
+        val leaving = ((it.offset + size - top) / (size * reach)).coerceIn(0f, 1f)
+        val entering = ((bottom - it.offset) / (size * reach)).coerceIn(0f, 1f)
         val t = minOf(leaving, entering)
         val eased = t * t * (3f - 2f * t)
         alpha = eased

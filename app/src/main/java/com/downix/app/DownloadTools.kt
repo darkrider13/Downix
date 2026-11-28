@@ -2,6 +2,7 @@ package com.downix.app
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import android.content.ClipData
@@ -388,35 +389,33 @@ internal fun DetailsDialog(
                 when (tabs[tabIndex]) {
                     // Same scrolling feel as the download cards: a lazy list whose rows fade and shrink at the edges.
                     "Files" -> fileList?.let { TorrentFileList(it) }
-                    else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                        if (tabs[tabIndex] == "Info") {
-                            TorrentInfoRows(item)
-                        } else {
+                    "Info" -> DetailLazyList(torrentInfoRows(item))
+                    else -> DetailLazyList(
+                        buildList<@Composable () -> Unit> {
                             if (!item.isTorrent || !item.url.startsWith(TorrentEngine.FILE_PREFIX)) {
-                                DetailRow("Link", item.url, maxLines = 4)
-                                SettingDivider()
+                                add { DetailRow("Link", item.url, maxLines = 4) }
                             }
-                            DetailRow("Size", detailSize(item))
-                            SettingDivider()
-                            DetailRow("Added", dateText(item.createdAt))
-                            SettingDivider()
-                            Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
-                                Text("Status", color = Downix.colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                Spacer(Modifier.height(4.dp))
-                                StatusLine(item)
+                            add { DetailRow("Size", detailSize(item)) }
+                            add { DetailRow("Added", dateText(item.createdAt)) }
+                            add {
+                                Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
+                                    Text("Status", color = Downix.colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                    Spacer(Modifier.height(4.dp))
+                                    StatusLine(item)
+                                }
                             }
-                            SettingDivider()
-                            DetailRow(
-                                "Saved to",
-                                if (item.isCompleted) "${SaveLocation.savedFolderLabel(item.savedUri)} / ${item.fileName}"
-                                else "Your download folder, when the download is finished"
-                            )
+                            add {
+                                DetailRow(
+                                    "Saved to",
+                                    if (item.isCompleted) "${SaveLocation.savedFolderLabel(item.savedUri)} / ${item.fileName}"
+                                    else "Your download folder, when the download is finished"
+                                )
+                            }
                             if (item.state == DownloadState.FAILED && !item.error.isNullOrBlank()) {
-                                SettingDivider()
-                                DetailRow("Error", item.error)
+                                add { DetailRow("Error", item.error) }
                             }
                         }
-                    }
+                    )
                 }
             }
         }
@@ -470,28 +469,47 @@ private fun DetailTabs(tabs: List<String>, selected: Int, onSelect: (Int) -> Uni
     }
 }
 
-/** Torrent tab "Info": type, hash, peers and seeds, sharing numbers. */
-@Composable
-private fun TorrentInfoRows(item: DownloadItem) {
-    DetailRow("Type", if (item.url.startsWith(TorrentEngine.FILE_PREFIX)) "Torrent (.torrent file)" else "Torrent (magnet link)")
-    item.infoHash?.takeIf { it.isNotBlank() }?.let {
-        SettingDivider()
-        DetailRow("Info hash", it, maxLines = 2)
-    }
+/** Torrent tab "Info": type, hash, peers and seeds, sharing numbers (one entry per row). */
+private fun torrentInfoRows(item: DownloadItem): List<@Composable () -> Unit> = buildList {
+    add { DetailRow("Type", if (item.url.startsWith(TorrentEngine.FILE_PREFIX)) "Torrent (.torrent file)" else "Torrent (magnet link)") }
+    item.infoHash?.takeIf { it.isNotBlank() }?.let { add { DetailRow("Info hash", it, maxLines = 2) } }
     if (item.state == DownloadState.DOWNLOADING && item.savingPercent < 0) {
-        SettingDivider()
-        DetailRow(
-            "Connections",
-            (if (item.peerTotal > item.peers) "${item.peers} of ${item.peerTotal} peers" else "${item.peers} peers") + ", ${item.seeds} seeds"
-        )
+        add {
+            DetailRow(
+                "Connections",
+                (if (item.peerTotal > item.peers) "${item.peers} of ${item.peerTotal} peers" else "${item.peers} peers") + ", ${item.seeds} seeds"
+            )
+        }
     }
     item.seeding?.let { seed ->
-        SettingDivider()
-        val text = if (seed.uploadSpeed > 0) "Uploading ${formatSpeed(seed.uploadSpeed)}" else "Waiting for peers"
-        DetailRow(
-            "Seeding",
-            "$text\nRatio ${"%.2f".format(seed.ratio)}, ${formatBytes(seed.uploaded)} shared, ${seed.peers} peers"
-        )
+        add {
+            val text = if (seed.uploadSpeed > 0) "Uploading ${formatSpeed(seed.uploadSpeed)}" else "Waiting for peers"
+            DetailRow(
+                "Seeding",
+                "$text\nRatio ${"%.2f".format(seed.ratio)}, ${formatBytes(seed.uploaded)} shared, ${seed.peers} peers"
+            )
+        }
+    }
+}
+
+/**
+ * The scrolling of the Details tabs: the same lazy list as the download cards, rows fade and shrink a little
+ * when they slide under the top or bottom edge (shorter reach than the cards, because the rows are taller).
+ */
+@Composable
+private fun DetailLazyList(rows: List<@Composable () -> Unit>) {
+    val state = androidx.compose.foundation.lazy.rememberLazyListState()
+    androidx.compose.foundation.lazy.LazyColumn(
+        state = state,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        itemsIndexed(rows, key = { i, _ -> i }, contentType = { _, _ -> "row" }) { i, row ->
+            Column(Modifier.fillMaxWidth().fadeAtListEdges(state, i, reach = 0.5f)) {
+                row()
+                if (i < rows.lastIndex) SettingDivider()
+            }
+        }
     }
 }
 
