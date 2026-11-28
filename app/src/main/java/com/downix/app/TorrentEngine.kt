@@ -593,7 +593,7 @@ class TorrentEngine(
                         val file = sourceFile(e.hash.toHex())
                         if (!file.exists()) {
                             file.parentFile?.mkdirs()
-                            file.writeBytes(info.toEntry().bencode())
+                            file.writeBytes(torrentFileBytes(info))
                         }
                     }
                     // Keep sharing from the work folder; it is deleted when seeding stops.
@@ -961,11 +961,24 @@ class TorrentEngine(
         fun extractMagnet(text: String?): String? =
             text?.let { MAGNET.find(it)?.value }?.let { normalizeMagnet(it) }
 
+        /** Bytes of a .torrent file for [info]; works across libtorrent4j versions (method names differ). */
+        fun torrentFileBytes(info: TorrentInfo): ByteArray {
+            val cls = info.javaClass
+            runCatching { (cls.getMethod("bencode").invoke(info) as? ByteArray)?.let { return it } }
+            runCatching {
+                val entry = cls.getMethod("toEntry").invoke(info)
+                (entry.javaClass.getMethod("bencode").invoke(entry) as? ByteArray)?.let { return it }
+            }
+            val section = cls.getMethod("metadata").invoke(info) as ByteArray
+            // a minimal .torrent: {"info": <info dictionary>}
+            return "d4:info".toByteArray(Charsets.US_ASCII) + section + "e".toByteArray(Charsets.US_ASCII)
+        }
+
         /** Info hash of a magnet link as a Sha1Hash (accepts 40-char hex and 32-char base32 forms). */
         fun magnetHash(magnet: String): Sha1Hash {
             val raw = BTIH.find(magnet)?.groupValues?.get(1)
                 ?: throw IllegalArgumentException("No info hash in magnet link")
-            if (raw.length == 40) return Sha1Hash(raw.lowercase())
+            if (raw.length == 40) return Sha1Hash.parseHex(raw.lowercase())
             val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
             var bits = 0
             var value = 0
@@ -980,7 +993,7 @@ class TorrentEngine(
                     bits -= 8
                 }
             }
-            return Sha1Hash(out.toByteArray())
+            return Sha1Hash.parseHex(out.toByteArray().joinToString("") { "%02x".format(it.toInt() and 0xFF) })
         }
 
         /** Info hash as written in the link (hex in lower case), used to spot duplicates. */
