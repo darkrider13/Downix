@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -54,6 +57,7 @@ internal fun MagnetDialog(
     initial: String,
     onFindDuplicate: suspend (String) -> DownloadItem?,
     onDismiss: () -> Unit,
+    onPickFile: () -> Unit,
     onSubmit: (magnet: String) -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
@@ -174,6 +178,9 @@ internal fun MagnetDialog(
             Text(message, color = if (valid) c.green else c.textSecondary, fontSize = 11.sp)
         }
 
+        Spacer(Modifier.height(12.dp))
+        PillButton("Choose .torrent file", onClick = onPickFile, small = true)
+
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PillButton("Cancel", onClick = onDismiss, outlineRed = true, modifier = Modifier.weight(1f))
@@ -182,6 +189,97 @@ internal fun MagnetDialog(
                 onClick = { if (duplicate != null) submit(skipDuplicateCheck = true) else submit() },
                 green = true,
                 enabled = valid,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+
+/**
+ * "Choose files" popup for a torrent with several files. The torrent waits (nothing is downloaded) until the
+ * user taps Download. Back / outside tap = download everything, Cancel = remove the torrent.
+ */
+@Composable
+internal fun TorrentFilesDialog(
+    name: String,
+    files: List<TorrentFileInfo>,
+    onCancelTorrent: () -> Unit,
+    onConfirm: (Set<Int>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selected by remember { mutableStateOf(files.map { it.index }.toSet()) }
+    val allSelected = selected.size == files.size
+    val selectedSize = files.filter { it.index in selected }.sumOf { it.size }
+
+    GlassCenterDialog(onDismiss = onDismiss, title = "Choose files") {
+        val c = Downix.colors
+        Text(name, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(4.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${selected.size} of ${files.size} files · ${formatBytes(selectedSize)}",
+                color = c.textSecondary,
+                fontSize = 11.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                if (allSelected) "Select none" else "Select all",
+                color = c.text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { selected = if (allSelected) emptySet() else files.map { it.index }.toSet() }
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 300.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .glass(RoundedCornerShape(14.dp))
+                .verticalScroll(rememberScrollState())
+        ) {
+            files.forEach { file ->
+                val on = file.index in selected
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { selected = if (on) selected - file.index else selected + file.index }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        if (on) DownixIcons.SelectAll else DownixIcons.Square,
+                        contentDescription = if (on) "Selected" else "Not selected",
+                        tint = if (on) c.green else c.textSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.size(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            file.path.substringAfterLast('/'),
+                            color = c.text,
+                            fontSize = 12.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(formatBytes(file.size), color = c.textSecondary, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("Cancel", onClick = onCancelTorrent, outlineRed = true, modifier = Modifier.weight(1f))
+            PillButton(
+                "Download",
+                onClick = { onConfirm(selected) },
+                green = true,
+                enabled = selected.isNotEmpty(),
                 modifier = Modifier.weight(1f)
             )
         }

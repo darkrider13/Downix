@@ -243,11 +243,12 @@ class MainActivity : ComponentActivity() {
         Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT).let {
             TorrentEngine.extractMagnet(it) ?: extractLink(it)
         }
-        // a download link or magnet link tapped in another app, Downix picked in "Open with"
+        // a download link, magnet link or .torrent file opened from another app, Downix picked in "Open with"
         Intent.ACTION_VIEW -> {
             val data = intent.data
             when {
                 data == null -> null
+                data.scheme.equals("content", true) || data.scheme.equals("file", true) -> data.toString()
                 data.scheme.equals("magnet", true) -> TorrentEngine.normalizeMagnet(data.toString())
                 data.scheme.equals("http", true) || data.scheme.equals("https", true) -> data.toString()
                 else -> null
@@ -295,6 +296,34 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
     suspend fun findMagnetDuplicate(magnet: String): DownloadItem? = repo.findMagnetDuplicate(magnet)
+
+    /** Torrent from a .torrent file (picked in the app or opened from another app). */
+    fun addTorrentFile(uri: Uri, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { app.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            }
+            if (bytes == null || bytes.isEmpty() || bytes.size > 10 * 1024 * 1024) {
+                onResult("Could not read the .torrent file")
+                return@launch
+            }
+            val (id, error) = repo.addTorrentFile(bytes)
+            if (id != null) {
+                DownloadService.start(app)
+                onResult("Torrent added")
+            } else {
+                onResult(error ?: "Could not add the torrent")
+            }
+        }
+    }
+
+    /** Multi-file torrents that wait for "Choose files". */
+    val torrentSelectionRequests = repo.torrentSelectionRequests
+    suspend fun torrentFiles(id: Long): List<TorrentFileInfo>? = repo.torrentFiles(id)
+    fun applyTorrentSelection(id: Long, selected: Set<Int>) {
+        repo.applyTorrentSelection(id, selected)
+        DownloadService.start(app)
+    }
     fun deleteWithFile(id: Long, onResult: (String) -> Unit) {
         viewModelScope.launch {
             val message = when (repo.deleteWithFile(id)) {
@@ -317,8 +346,12 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Download the same link again from the start (a finished file stays on the phone). */
     fun restart(item: DownloadItem) {
         viewModelScope.launch {
-            repo.remove(item.id)
-            val added = if (item.isTorrent) repo.addMagnet(item.url) else repo.add(item.url, item.fileName.ifBlank { null })
+            val added = if (item.isTorrent) {
+                repo.restartTorrent(item) // removes the old row itself, only when it can really restart
+            } else {
+                repo.remove(item.id)
+                repo.add(item.url, item.fileName.ifBlank { null })
+            }
             if (added != null) DownloadService.start(app)
         }
     }
@@ -417,6 +450,7 @@ private fun MainScreen(
     }
     var showAdd by remember { mutableStateOf(false) }
     var showMagnet by remember { mutableStateOf(false) }
+    var filesDialogId by remember { mutableStateOf<Long?>(null) } // torrent waiting for "Choose files"
     var magnetInitial by remember { mutableStateOf("") }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var toastText by remember { mutableStateOf<String?>(null) }
@@ -480,6 +514,13 @@ private fun MainScreen(
             else vm.restart(item)
         }
     }
+    // A multi-file torrent has received its info and waits: ask which files to download.
+    LaunchedEffect(Unit) {
+        vm.torrentSelectionRequests.collect { filesDialogId = it }
+    }
+    val pickTorrentFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.addTorrentFile(uri, showToast)
+    }
     val cardOpen = remember<(String?) -> Unit>(context) { { uri -> openDownloaded(context, uri, latestShowToast) } }
     val cardDetails = remember<(Long) -> Unit> { { id -> detailsId = id } }
     val cardToggleSelect = remember<(Long) -> Unit> { { id -> selected = if (id in selected) selected - id else selected + id } }
@@ -488,7 +529,11 @@ private fun MainScreen(
     // A link shared from another app opens the add dialog with the link filled in.
     LaunchedEffect(sharedLink) {
         if (sharedLink != null) {
-            if (TorrentEngine.normalizeMagnet(sharedLink) != null) {
+            if (sharedLink.startsWith("content:", true) || sharedLink.startsWith("file:", true)) {
+                // a .torrent file opened from another app
+                vm.addTorrentFile(Uri.parse(sharedLink), showToast)
+                onSharedLinkConsumed()
+            } else if (TorrentEngine.normalizeMagnet(sharedLink) != null) {
                 magnetInitial = sharedLink
                 showMagnet = true
             } else {
@@ -523,7 +568,7 @@ private fun MainScreen(
 
     // The blur is switched on from the very same state that opens a popup, in the same frame (no waiting for the
     // popup window to register itself). It goes away in the same frame the popup closes.
-    val popupOpen = showAdd || showMagnet || showUpdate || detailsItem != null || confirmDeleteFile != null ||
+    val popupOpen = showAdd || showMagnet || filesDialogId != null || showUpdate || detailsItem != null || confirmDeleteFile != null ||
         confirmRemove != null || (confirmBulk && downloads.any { it.id in selected }) ||
         confirmClear || confirmCancel != null || confirmRetry != null
     Box(Modifier.fillMaxSize().blurWhen(popupOpen || PopupLayers.count > 0)) {
@@ -727,12 +772,44 @@ private fun MainScreen(
                 showMagnet = false
                 onSharedLinkConsumed()
             },
+            onPickFile = {
+                showMagnet = false
+                onSharedLinkConsumed()
+                pickTorrentFile.launch(arrayOf("application/x-bittorrent", "application/octet-stream"))
+            },
             onSubmit = { magnet ->
                 vm.addMagnet(magnet)
                 showMagnet = false
                 onSharedLinkConsumed()
             }
         )
+    }
+
+    filesDialogId?.let { torrentId ->
+        var torrentFiles by remember(torrentId) { mutableStateOf<List<TorrentFileInfo>?>(null) }
+        LaunchedEffect(torrentId) {
+            torrentFiles = vm.torrentFiles(torrentId)
+            if (torrentFiles == null) filesDialogId = null // the torrent is gone, nothing to choose
+        }
+        torrentFiles?.let { list ->
+            TorrentFilesDialog(
+                name = downloads.firstOrNull { it.id == torrentId }?.fileName.orEmpty(),
+                files = list,
+                onCancelTorrent = {
+                    vm.remove(torrentId)
+                    filesDialogId = null
+                },
+                onConfirm = { chosen ->
+                    vm.applyTorrentSelection(torrentId, chosen)
+                    filesDialogId = null
+                },
+                onDismiss = {
+                    // Back / outside tap: the safe choice, download everything
+                    vm.applyTorrentSelection(torrentId, list.map { it.index }.toSet())
+                    filesDialogId = null
+                }
+            )
+        }
     }
 
     if (showUpdate) {
@@ -1336,7 +1413,9 @@ private fun statusText(kind: StatusKind, item: DownloadItem): String = when (kin
         else formatSpeed(item.speedBytesPerSec) + torrentPeers(item)
     StatusKind.QUEUED -> "Waiting in queue"
     StatusKind.WAITING -> item.error?.takeIf { it.isNotBlank() } ?: "Waiting for network"
-    StatusKind.PAUSED -> if (item.hasKnownSize) "Paused · ${item.percent}%" else "Paused"
+    StatusKind.PAUSED ->
+        if (item.isTorrent && item.error == TorrentEngine.CHOOSE_FILES) "Choose files · tap resume"
+        else if (item.hasKnownSize) "Paused · ${item.percent}%" else "Paused"
     StatusKind.FAILED -> "Failed"
     StatusKind.COMPLETED -> "Completed"
     StatusKind.CANCELED -> "Canceled"

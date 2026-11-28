@@ -29,11 +29,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.libtorrent4j.AddTorrentParams
+import org.libtorrent4j.Priority
 import org.libtorrent4j.SessionHandle
 import org.libtorrent4j.SessionManager
 import org.libtorrent4j.Sha1Hash
 import org.libtorrent4j.TorrentFlags
 import org.libtorrent4j.TorrentHandle
+import org.libtorrent4j.TorrentInfo
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
@@ -41,8 +43,14 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 
+/** One file inside a torrent (for the "Choose files" popup). [index] is the position inside the torrent. */
+data class TorrentFileInfo(val index: Int, val path: String, val size: Long)
+
+/** What a .torrent file contains, read without starting anything. */
+data class TorrentMeta(val hash: String, val name: String)
+
 /**
- * Torrent downloads (magnet links), built on libtorrent4j.
+ * Torrent downloads (magnet links and .torrent files), built on libtorrent4j.
  *
  * It follows the same rules as [DownloadEngine], so the rest of the app does not care which engine runs a row:
  *  - it reports progress as [DownloadUpdate] on [updates] (QUEUED / DOWNLOADING / PAUSED / WAITING / COMPLETED / FAILED)
@@ -60,11 +68,13 @@ class TorrentEngine(
 ) {
 
     /** One torrent that the engine knows about (running, paused or being saved). */
-    private class Entry(val id: Long, val magnet: String, val hash: Sha1Hash, @Volatile var name: String) {
+    private class Entry(val id: Long, val source: String, val hash: Sha1Hash, @Volatile var name: String) {
         @Volatile var paused = false
         @Volatile var finishing = false
         @Volatile var configured = false   // true after the one-time "run now, not queued" setup of its handle
         @Volatile var netPaused = false    // paused by us because the network is not allowed
+        @Volatile var selectionDone = false // false = a multi-file torrent still waits for "Choose files"
+        @Volatile var skipped: Set<Int> = emptySet() // file indexes the user did not select
         @Volatile var done = 0L
         @Volatile var total = -1L
         @Volatile var finishJob: Job? = null
@@ -89,6 +99,11 @@ class TorrentEngine(
     )
     val updates: SharedFlow<DownloadUpdate> = _updates.asSharedFlow()
 
+    private val _selection = MutableSharedFlow<Long>(extraBufferCapacity = 8)
+
+    /** Emits the id of a multi-file torrent that is waiting for the user to choose its files. */
+    val selectionRequests: SharedFlow<Long> = _selection.asSharedFlow()
+
     init {
         scope.launch {
             while (isActive) {
@@ -112,17 +127,23 @@ class TorrentEngine(
      * Start or resume a torrent. If its files are already (partly) in the work folder, libtorrent checks them
      * and continues from there, also after the app was closed.
      */
-    fun start(id: Long, magnet: String, knownName: String? = null) {
+    fun start(id: Long, source: String, knownName: String? = null) {
         val known = entries[id]
         if (known != null && !known.paused && !known.finishing) return // already running
 
         scope.launch {
             try {
                 val sm = session()
-                val clean = magnet.trim()
-                val hash = AddTorrentParams.parseMagnetUri(clean).infoHash()
+                val clean = source.trim()
+                // A magnet link, or "torrent-file:<hash>" = a .torrent file that was stored when it was added.
+                val fileInfo: TorrentInfo? =
+                    if (clean.startsWith(FILE_PREFIX)) TorrentInfo(sourceFile(clean.removePrefix(FILE_PREFIX))) else null
+                val hash = fileInfo?.infoHash() ?: AddTorrentParams.parseMagnetUri(clean).infoHash()
                 val entry = entries.getOrPut(id) {
-                    Entry(id, clean, hash, knownName?.takeIf { it.isNotBlank() } ?: nameOf(clean))
+                    Entry(
+                        id, clean, hash,
+                        knownName?.takeIf { it.isNotBlank() } ?: fileInfo?.name() ?: nameOf(clean)
+                    )
                 }
                 if (entry.finishing) return@launch
                 entry.paused = false
@@ -136,7 +157,8 @@ class TorrentEngine(
                 } else {
                     entry.configured = false
                     val dir = workDir(id).also { it.mkdirs() }
-                    sm.download(withTrackers(clean), dir, TorrentFlags.AUTO_MANAGED)
+                    if (fileInfo != null) sm.download(fileInfo, dir)
+                    else sm.download(withTrackers(clean), dir, TorrentFlags.AUTO_MANAGED)
                 }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
@@ -162,7 +184,7 @@ class TorrentEngine(
     }
 
     /** Cancel: stops the torrent and deletes everything downloaded so far. */
-    fun cancel(id: Long) {
+    fun cancel(id: Long, infoHash: String? = null) {
         scope.launch {
             val e = entries.remove(id)
             e?.finishJob?.cancel()
@@ -173,9 +195,75 @@ class TorrentEngine(
             }
             delay(300) // let libtorrent let go of the files
             workDir(id).deleteRecursively()
+            (infoHash ?: e?.hash?.toHex())?.let { sourceFile(it).delete() }
             _updates.tryEmit(DownloadUpdate(id, DownloadState.CANCELED, e?.name.orEmpty(), 0L, -1L))
         }
     }
+
+    /* ----------------------- .torrent files, file choice ----------------------- */
+
+    /** Reads a .torrent file. null = it is not a valid torrent (or the torrent engine can not start). */
+    fun inspect(bytes: ByteArray): TorrentMeta? = runCatching {
+        val info = TorrentInfo.bdecode(bytes)
+        TorrentMeta(info.infoHash().toHex().lowercase(), info.name().orEmpty().ifBlank { "Torrent" })
+    }.getOrNull()
+
+    /** Keeps the .torrent file, so the torrent can be paused, resumed and restarted later. */
+    fun storeSource(hash: String, bytes: ByteArray) {
+        val file = sourceFile(hash)
+        file.parentFile?.mkdirs()
+        file.writeBytes(bytes)
+    }
+
+    /** The stored .torrent file of [hash], or null when it is gone (for example after the torrent finished). */
+    fun readSource(hash: String): ByteArray? = sourceFile(hash).takeIf { it.exists() }?.readBytes()
+
+    /** The files of a torrent that is known to the engine (null while its info has not arrived). */
+    fun files(id: Long): List<TorrentFileInfo>? {
+        val e = entries[id] ?: return null
+        val handle = sessionRef?.find(e.hash)?.takeIf { it.isValid() } ?: return null
+        val info = handle.torrentFile() ?: return null
+        val fs = info.files()
+        return (0 until info.numFiles()).map { TorrentFileInfo(it, fs.filePath(it), fs.fileSize(it)) }
+    }
+
+    /** Applies the user's choice ([selected] = indexes to download) and starts the torrent. */
+    fun applySelection(id: Long, selected: Set<Int>) {
+        val e = entries[id] ?: return
+        scope.launch {
+            runCatching {
+                val handle = sessionRef?.find(e.hash)?.takeIf { it.isValid() } ?: return@runCatching
+                val count = handle.torrentFile()?.numFiles() ?: return@runCatching
+                val skipped = (0 until count).filter { it !in selected }.toSet()
+                saveSkipped(id, skipped)
+                applyPriorities(handle, count, skipped)
+                e.skipped = skipped
+                e.selectionDone = true
+                e.paused = false
+                e.netPaused = false
+                handle.resume()
+                publish(e, DownloadState.QUEUED)
+            }
+        }
+    }
+
+    private fun applyPriorities(handle: TorrentHandle, count: Int, skipped: Set<Int>) {
+        handle.prioritizeFiles(Array(count) { if (it in skipped) Priority.IGNORE else Priority.DEFAULT })
+    }
+
+    private fun selectionFile(id: Long) = File(workDir(id), "selection.txt")
+
+    private fun saveSkipped(id: Long, skipped: Set<Int>) {
+        selectionFile(id).apply { parentFile?.mkdirs() }.writeText(skipped.sorted().joinToString(","))
+    }
+
+    private fun loadSkipped(id: Long): Set<Int>? {
+        val file = selectionFile(id)
+        if (!file.exists()) return null
+        return file.readText().split(',').mapNotNull { it.trim().toIntOrNull() }.toSet()
+    }
+
+    private fun sourceFile(hash: String) = File(appContext.filesDir, "torrent-files/${hash.lowercase()}.torrent")
 
     /* ----------------------------- polling ----------------------------- */
 
@@ -218,6 +306,24 @@ class TorrentEngine(
                     info.name()?.takeIf { it.isNotBlank() }?.let { e.name = it }
                     e.total = st.totalWanted()
                     e.done = st.totalWantedDone()
+                    if (!e.selectionDone) {
+                        val saved = loadSkipped(e.id)
+                        if (saved != null) {
+                            // the user already chose earlier (before an app restart): apply it again
+                            applyPriorities(handle, info.numFiles(), saved)
+                            e.skipped = saved
+                            e.selectionDone = true
+                        } else if (info.numFiles() > 1) {
+                            // several files: do not download anything until the user has chosen
+                            handle.pause()
+                            e.paused = true
+                            publish(e, DownloadState.PAUSED, error = CHOOSE_FILES)
+                            _selection.tryEmit(e.id)
+                            continue
+                        } else {
+                            e.selectionDone = true
+                        }
+                    }
                     if (st.isFinished() || st.isSeeding()) {
                         beginFinish(sm, handle, e, info)
                         continue
@@ -247,7 +353,7 @@ class TorrentEngine(
         if (e.finishing) return
         e.finishing = true
         val fs = info.files()
-        val files = (0 until info.numFiles()).map { fs.filePath(it) to fs.fileSize(it) }
+        val files = (0 until info.numFiles()).filter { it !in e.skipped }.map { fs.filePath(it) to fs.fileSize(it) }
         e.total = files.sumOf { it.second }
         e.done = e.total
 
@@ -259,6 +365,7 @@ class TorrentEngine(
                 publishSaving(e, 0)
                 val mainUri = saveAll(e, files)
                 workDir(e.id).deleteRecursively()
+                sourceFile(e.hash.toHex()).delete()
                 entries.remove(e.id)
                 _updates.tryEmit(
                     DownloadUpdate(
@@ -544,6 +651,12 @@ class TorrentEngine(
 
     companion object {
         private const val TICK_MS = 1000L
+
+        /** Prefix of the stored link of a torrent that was added from a .torrent file. */
+        const val FILE_PREFIX = "torrent-file:"
+
+        /** Shown on a paused multi-file torrent until the user has chosen its files. */
+        const val CHOOSE_FILES = "Choose files"
         private const val COPY_BUFFER = 1024 * 1024
         private const val MIN_FREE_SPACE = 5L * 1024 * 1024
 

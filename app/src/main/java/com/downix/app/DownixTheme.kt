@@ -1214,6 +1214,7 @@ internal object DownixIcons {
     val Trash by lazy { icon("Trash", "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13") }
     val Plus by lazy { icon("Plus", "M12 5v14M5 12h14") }
     val Minus by lazy { icon("Minus", "M5 12h14") }
+    val Square by lazy { icon("Square", "M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z") }
     val Check by lazy { icon("Check", "M5 12l5 5 9-10") }
     val Back by lazy { icon("Back", "M15 5l-7 7 7 7") }
     val Link by lazy {

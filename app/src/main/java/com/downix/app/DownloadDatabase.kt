@@ -317,6 +317,44 @@ class DownloadRepository private constructor(context: Context) {
         return id
     }
 
+    /**
+     * Adds a torrent from the bytes of a .torrent file. Returns (id, null) on success or (null, message) when the
+     * file is not a torrent or the torrent is already in the list.
+     */
+    suspend fun addTorrentFile(bytes: ByteArray): Pair<Long?, String?> {
+        val meta = torrents.inspect(bytes) ?: return null to "This is not a valid .torrent file"
+        if (dao.findByInfoHash(meta.hash) != null) return null to "Already in your list"
+        ready.join()
+        torrents.storeSource(meta.hash, bytes)
+        val url = TorrentEngine.FILE_PREFIX + meta.hash
+        val id = dao.insert(
+            DownloadEntity(url = url, fileName = meta.name, kind = DownloadKind.TORRENT.name, infoHash = meta.hash)
+        )
+        torrents.start(id, url, meta.name)
+        return id to null
+    }
+
+    /** Download a torrent again from the start. Returns the new id, or null when it can not be restarted. */
+    suspend fun restartTorrent(item: DownloadItem): Long? {
+        if (item.url.startsWith(TorrentEngine.FILE_PREFIX)) {
+            // the stored .torrent file is needed again: read it first, so nothing is removed if it is gone
+            val bytes = torrents.readSource(item.url.removePrefix(TorrentEngine.FILE_PREFIX)) ?: return null
+            remove(item.id)
+            return addTorrentFile(bytes).first
+        }
+        remove(item.id)
+        return addMagnet(item.url)
+    }
+
+    /** Ids of multi-file torrents that wait for the user to choose their files. */
+    val torrentSelectionRequests = torrents.selectionRequests
+
+    /** Files inside a torrent (null while its info has not arrived). */
+    suspend fun torrentFiles(id: Long): List<TorrentFileInfo>? = withContext(Dispatchers.IO) { torrents.files(id) }
+
+    /** The user's file choice: these file indexes are downloaded, the rest are skipped. */
+    fun applyTorrentSelection(id: Long, selected: Set<Int>) = torrents.applySelection(id, selected)
+
     /** The same torrent (same info hash) that is already in the list, or null. */
     suspend fun findMagnetDuplicate(magnet: String): DownloadItem? {
         val clean = TorrentEngine.normalizeMagnet(magnet) ?: return null
@@ -355,7 +393,7 @@ class DownloadRepository private constructor(context: Context) {
     /** Stops the download (HTTP or torrent) and deletes its half-done files. */
     private suspend fun stopAndClean(id: Long) {
         val row = dao.getById(id)
-        if (row?.kind == DownloadKind.TORRENT.name) torrents.cancel(id) else engine.cancel(id)
+        if (row?.kind == DownloadKind.TORRENT.name) torrents.cancel(id, row.infoHash) else engine.cancel(id)
     }
 
     /** Removes an item from the list (stops it first if needed). A finished file stays on the phone. */
