@@ -120,6 +120,23 @@ After the first install, new versions arrive inside the app: **Settings → Upda
 
 ---
 
+## Torrents
+
+Downix downloads torrents next to normal files. Open the **+** menu and tap **Torrent** (the first option).
+
+- **Magnet links and .torrent files.** Paste a magnet link, pick a `.torrent` file, or tap a magnet / `.torrent` link in any app.
+- **Choose files.** A torrent with several files asks which ones to download. Only the chosen files are saved.
+- **Queue.** Only a set number of torrents run at once (*Active torrents*), the rest wait and start by themselves. Torrents that were running when the app closed continue when it opens again.
+- **Speed limits and DHT.** Limit download and upload speed, and switch DHT peer search on or off.
+- **Seeding (optional).** Keep sharing a finished torrent until a share ratio or time limit is reached. A notification with a *Stop seeding* button shows while it runs, and sharing continues after an app restart.
+- **Folders.** A multi-file torrent keeps its own folder: *Open* shows the folder and *Delete folder* removes only that torrent's files.
+- **Clear messages.** Not enough storage space and "No peers found" are shown right on the card.
+- **Wi-Fi only** applies to torrents too.
+
+Torrent data is first downloaded into a private folder and copied to your download folder when it is complete. With seeding on, that private copy is kept (so a torrent uses its size twice) until sharing stops.
+
+---
+
 ## How it works
 
 ```text
@@ -143,6 +160,10 @@ After the first install, new versions arrive inside the app: **Settings → Upda
 | Simultaneous downloads | How many files download at once (1 to 5) |
 | Wi-Fi only | Never use mobile data |
 | Notifications | Alert when a download finishes or fails |
+| Active torrents | How many torrents download at once (1 to 5), the rest wait |
+| Download / upload speed limit | Speed cap for all torrents together |
+| DHT | Find peers without a tracker |
+| Seed after download | Keep sharing a finished torrent, stopping at a ratio or time limit |
 | Updates | Check for a new version of Downix |
 
 ---
@@ -170,7 +191,7 @@ The UI never talks to the network. It observes the database, and the engine writ
 |---|---|
 | Language | Kotlin 1.9 |
 | UI | Jetpack Compose, Material 3 |
-| Networking | OkHttp 4 |
+| Networking | OkHttp 4, libtorrent4j (torrents) |
 | Database | Room 2.6 (KSP) |
 | Background work | Foreground service, Kotlin Coroutines |
 | Build | Gradle (Kotlin DSL), Android Gradle Plugin 8.5, JDK 17 |
@@ -187,6 +208,8 @@ Downix/
 │   ├── DownloadService.kt      Foreground service and notifications
 │   ├── DownloadDatabase.kt     Room database and repository
 │   ├── DownloadTools.kt        Filters, search, details popup, copy and share actions
+│   ├── TorrentEngine.kt        Torrents (libtorrent4j): queue, file choice, seeding, saving
+│   ├── TorrentUi.kt            Add torrent and Choose files popups
 │   ├── LinkChecker.kt          Checks a link before it is added
 │   ├── NetworkMonitor.kt       Connectivity and Wi-Fi state
 │   ├── SettingsRepository.kt   Saved preferences
